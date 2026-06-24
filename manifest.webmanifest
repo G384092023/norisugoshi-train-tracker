@@ -1,0 +1,15 @@
+{
+  "name": "乗り過ごし防止 — Train Tracker",
+  "short_name": "乗り過ごし防止",
+  "description": "Pick your train, set where you get off, and get alerted before your stop.",
+  "lang": "ja",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f3f4f6",
+  "theme_color": "#16a34a",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

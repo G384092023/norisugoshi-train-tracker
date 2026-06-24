@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>乗り過ごし防止 — Train Tracker</title>
+
+<!-- PWA: installable to home screen, theming, icons -->
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#16a34a">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="乗り過ごし防止">
+<script>
+  // Register the service worker (only works over HTTPS or on localhost).
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () =>
+      navigator.serviceWorker.register("/sw.js").catch((e) => console.warn("SW failed", e)));
+  }
+</script>
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+         background: #f3f4f6; color: #111827; -webkit-tap-highlight-color: transparent; }
+  .app { max-width: 460px; margin: 0 auto; padding: 1rem 1rem 3rem; }
+
+  .header { display: flex; align-items: center; gap: 10px; margin-bottom: 1rem; }
+  .header h1 { font-size: 17px; font-weight: 700; }
+  .live-dot { width: 9px; height: 9px; border-radius: 50%; background: #16a34a;
+              display: none; animation: pulse 1.5s infinite; margin-left: auto; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 14px;
+          padding: 1rem 1.1rem; margin-bottom: .85rem; }
+  .step-head { display: flex; align-items: center; gap: 8px; margin-bottom: .8rem; }
+  .step-num { width: 22px; height: 22px; border-radius: 50%; background: #111827; color: #fff;
+              font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .step-num.done { background: #16a34a; }
+  .step-title { font-size: 14px; font-weight: 600; }
+  .step-sub { font-size: 12px; color: #9ca3af; margin-left: auto; }
+
+  label.fld { font-size: 13px; color: #6b7280; display: block; margin-bottom: 5px; }
+  select, input { width: 100%; font-size: 15px; padding: 11px 12px; border: 1px solid #d1d5db;
+                  border-radius: 10px; background: #fff; color: #111827; }
+  select:focus, input:focus { outline: none; border-color: #16a34a; box-shadow: 0 0 0 3px #16a34a22; }
+  .row2 { display: flex; gap: 10px; }
+  .row2 > * { flex: 1; }
+  .mt { margin-top: .75rem; }
+
+  .btn { width: 100%; padding: 13px; border-radius: 11px; border: 1px solid #d1d5db;
+         background: #fff; color: #374151; font-size: 15px; font-weight: 600; cursor: pointer;
+         display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn:active:not(:disabled) { transform: scale(.99); }
+  .btn.primary { background: #16a34a; border-color: #15803d; color: #fff; }
+  .btn.dark    { background: #111827; border-color: #111827; color: #fff; }
+  .btn.danger  { color: #dc2626; border-color: #fca5a5; background: #fff; }
+  .btn.ghost   { background: #f9fafb; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 10px; }
+  .btn-row .btn { flex: 1; }
+
+  .train-list { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto; }
+  .train-opt { border: 1px solid #e5e7eb; border-radius: 11px; padding: 10px 12px; cursor: pointer;
+               display: flex; align-items: center; gap: 10px; background: #fff; }
+  .train-opt:hover { border-color: #16a34a; background: #f0fdf4; }
+  .train-opt.sel  { border-color: #16a34a; background: #f0fdf4; box-shadow: 0 0 0 3px #16a34a22; }
+  .train-no { font-weight: 700; font-size: 14px; background: #111827; color: #fff;
+              border-radius: 7px; padding: 3px 9px; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .train-meta { font-size: 13px; line-height: 1.45; }
+  .train-meta .pos { font-weight: 600; }
+  .train-meta .sub { color: #6b7280; font-size: 12px; }
+
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .badge.green{background:#dcfce7;color:#15803d} .badge.amber{background:#fef9c3;color:#92400e}
+  .badge.red{background:#fee2e2;color:#991b1b}   .badge.gray{background:#f3f4f6;color:#6b7280}
+  .badge.blue{background:#dbeafe;color:#1e40af}
+
+  .status-card { background:#0f172a; color:#e2e8f0; border-radius:14px; padding:1rem 1.1rem; margin-bottom:.85rem; }
+  .status-card .srow { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid #1e293b; font-size:13px; }
+  .status-card .srow:last-child{border-bottom:none}
+  .status-card .sk{color:#94a3b8} .status-card .sv{font-weight:700}
+
+  .countdown { font-size: 40px; font-weight: 800; text-align: center; padding: .4rem 0; color:#111827;
+               font-variant-numeric: tabular-nums; }
+  .countdown small { font-size: 15px; font-weight: 600; color:#6b7280; }
+  .countdown.warn { color:#ea580c } .countdown.alert{ color:#dc2626 } .countdown.arrived{ color:#16a34a }
+
+  .progress-bar { height: 8px; background:#e5e7eb; border-radius:4px; overflow:hidden; margin:.5rem 0; }
+  .progress-fill{ height:100%; background:#16a34a; border-radius:4px; transition:width .6s ease; }
+  .progress-labels{ display:flex; justify-content:space-between; font-size:11px; color:#9ca3af; }
+
+  .stops { list-style:none; margin-top:.6rem; }
+  .stops li { display:flex; align-items:center; gap:11px; padding:3px 0; font-size:13px; color:#6b7280; position:relative; }
+  .stops .dot{ width:11px; height:11px; border-radius:50%; background:#d1d5db; border:2px solid #fff; box-shadow:0 0 0 1px #d1d5db; flex-shrink:0; z-index:1; }
+  .stops li::before{ content:''; position:absolute; left:5px; top:50%; bottom:-50%; width:2px; background:#e5e7eb; }
+  .stops li:last-child::before{ display:none; }
+  .stops li.passed{ color:#cbd5e1; }
+  .stops li.passed .dot{ background:#e5e7eb; box-shadow:0 0 0 1px #e5e7eb; }
+  .stops li.cur{ color:#15803d; font-weight:700; } .stops li.cur .dot{ background:#16a34a; box-shadow:0 0 0 1px #16a34a; }
+  .stops li.tgt{ color:#b45309; font-weight:700; } .stops li.tgt .dot{ background:#d97706; box-shadow:0 0 0 1px #d97706; }
+  .stops li.zone{ color:#dc2626; font-weight:600; }
+  .tag{ font-size:11px; font-weight:600; padding:1px 7px; border-radius:999px; margin-left:6px; }
+  .tag.here{ background:#dcfce7; color:#15803d } .tag.off{ background:#ffedd5; color:#b45309 }
+
+  .banner { border-radius:12px; padding:12px 14px; font-size:14px; font-weight:600; margin-bottom:.85rem;
+            display:none; align-items:center; gap:10px; }
+  .banner.show{ display:flex }
+  .banner.alert{ background:#fef2f2; border:1px solid #fca5a5; color:#991b1b; animation:shake .4s ease; }
+  .banner.ok{ background:#f0fdf4; border:1px solid #86efac; color:#15803d; }
+  .banner.warn{ background:#fffbeb; border:1px solid #fde68a; color:#92400e; }
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+
+  .hint { font-size:12px; color:#9ca3af; text-align:center; margin-top:.5rem; }
+  .err  { font-size:13px; color:#b91c1c; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:8px 10px; margin-bottom:.85rem; display:none; }
+  .err.show{ display:block }
+  .ble-line{ display:flex; align-items:center; gap:8px; font-size:12px; color:#6b7280; margin-top:.6rem; }
+  .ble-pill{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; background:#f3f4f6; color:#6b7280; }
+  .ble-pill.on{ background:#dcfce7; color:#15803d; }
+  .spin{ display:inline-block;width:14px;height:14px;border:2px solid #ffffff66;border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite }
+  .spin.d{ border-color:#0002;border-top-color:#374151 } @keyframes sp{to{transform:rotate(360deg)}}
+  .timer{ background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;padding:12px 14px;margin-bottom:.85rem;display:none }
+  .timer.show{ display:block } .timer .tl{ font-size:12px;color:#4338ca;margin-bottom:3px }
+  .timer .tv{ font-size:24px;font-weight:800;color:#4f46e5;font-variant-numeric:tabular-nums }
+  .timer .tr{ font-size:12px;color:#4338ca;margin-top:6px;display:none }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="header">
+    <span style="font-size:20px">🚃</span>
+    <h1>乗り過ごし防止 <span style="color:#9ca3af;font-weight:500">Train Tracker</span></h1>
+    <div class="live-dot" id="liveDot"></div>
+  </div>
+
+  <div class="err" id="err"></div>
+
+  <!-- ===================== SETUP ===================== -->
+  <div id="setupView">
+
+    <!-- STEP 1 — line -->
+    <div class="card">
+      <div class="step-head">
+        <div class="step-num" id="s1">1</div>
+        <div class="step-title">乗っている路線を選ぶ — Your line</div>
+        <div class="step-sub" id="s1sub">loading…</div>
+      </div>
+      <label class="fld">運行中の路線のみ表示 (only lines running right now)</label>
+      <select id="selLine"><option value="">— loading live lines —</option></select>
+    </div>
+
+    <!-- STEP 2 — which train -->
+    <div class="card" id="card2" style="display:none">
+      <div class="step-head">
+        <div class="step-num" id="s2">2</div>
+        <div class="step-title">乗っている列車を選ぶ — Which train are you on?</div>
+        <div class="step-sub" id="s2sub"></div>
+      </div>
+      <p class="hint" style="text-align:left;margin:0 0 .6rem">
+        Check the train number on the in-car display, or match the destination / current station.
+      </p>
+      <div class="train-list" id="trainList"></div>
+    </div>
+
+    <!-- STEP 3 — destination -->
+    <div class="card" id="card3" style="display:none">
+      <div class="step-head">
+        <div class="step-num" id="s3">3</div>
+        <div class="step-title">降りる駅 — Get off at</div>
+      </div>
+      <div class="row2">
+        <div>
+          <label class="fld">Destination station</label>
+          <select id="selDest"><option value="">— select —</option></select>
+        </div>
+        <div style="max-width:42%">
+          <label class="fld">Alert before</label>
+          <select id="selAlert">
+            <option value="1">1 stop</option>
+            <option value="2" selected>2 stops</option>
+            <option value="3">3 stops</option>
+          </select>
+        </div>
+      </div>
+      <div class="ble-line">
+        <span>📳 Haptic device (BLE):</span>
+        <span class="ble-pill" id="blePill">not connected</span>
+        <button class="btn ghost" style="width:auto;padding:6px 12px;font-size:12px;margin-left:auto" onclick="connectBLE()">Connect</button>
+        <button class="btn ghost" id="btnBleTest" style="width:auto;padding:6px 12px;font-size:12px" onclick="bleTest()" disabled>Test</button>
+      </div>
+    </div>
+
+    <button class="btn primary" id="btnStart" onclick="startTracking()" disabled>▶ 追跡開始 — Start tracking</button>
+    <p class="hint">Data: ODPT (公共交通オープンデータ) · station-level, ~30–60s refresh</p>
+  </div>
+
+  <!-- ===================== TRACKING ===================== -->
+  <div id="trackView" style="display:none">
+
+    <div class="banner alert" id="alertBanner">⚡ <span id="alertText"></span></div>
+    <div class="banner ok"    id="arriveBanner">🚉 <span id="arriveText"></span></div>
+    <div class="banner warn"  id="warnBanner">⚠️ <span id="warnText"></span></div>
+
+    <!-- inline "switch train" picker — shown on wrong-way / lost-train -->
+    <div class="card alt-card" id="altCard" style="display:none">
+      <div class="step-title" id="altTitle" style="margin-bottom:.2rem"></div>
+      <p class="hint" style="text-align:left;margin:.1rem 0 .6rem" id="altSub"></p>
+      <div class="train-list" id="altList"></div>
+    </div>
+
+    <div class="timer" id="timer">
+      <div class="tl">⏱ 反応時間 — response time (experiment log)</div>
+      <div class="tv" id="timerVal">0.0s</div>
+      <button class="btn dark mt" style="padding:9px" onclick="stopTimer()">✋ 起きた — I'm awake</button>
+      <div class="tr" id="timerRes"></div>
+    </div>
+
+    <div class="countdown" id="countdown">—</div>
+    <div class="progress-labels"><span id="pFrom">—</span><span id="pTo">—</span></div>
+    <div class="progress-bar"><div class="progress-fill" id="pFill" style="width:0%"></div></div>
+
+    <div class="status-card">
+      <div class="srow"><span class="sk">列車 Train</span><span class="sv" id="tNo">—</span></div>
+      <div class="srow"><span class="sk">現在地 Position</span><span class="sv" id="tPos">—</span></div>
+      <div class="srow"><span class="sk">行先 Bound for</span><span class="sv" id="tDest">—</span></div>
+      <div class="srow"><span class="sk">遅延 Delay</span><span class="sv" id="tDelay">—</span></div>
+      <div class="srow"><span class="sk">状態 Status</span><span class="sv"><span class="badge gray" id="tStatus">…</span></span></div>
+    </div>
+
+    <div class="card">
+      <div class="step-title" style="margin-bottom:.3rem">停車駅 — Stops</div>
+      <ul class="stops" id="stopsList"></ul>
+    </div>
+
+    <p class="hint" id="refreshHint"></p>
+    <button class="btn ghost mt" id="btnSwitch" onclick="toggleAlts()">🔀 別の列車に変更 — wrong train? switch</button>
+    <div class="btn-row mt">
+      <button class="btn ghost" onclick="poll()" id="btnRefresh">🔄 Refresh</button>
+      <button class="btn danger" onclick="stopTracking()">✕ Stop</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================ CONFIG
+const API = "";                       // same origin as the proxy
+const POLL_MS = 25000;                // auto refresh every 25s
+// BLE — Nordic UART service (common on ESP32 firmware). Change to match your device.
+// These UUIDs MUST match the Arduino sketch (arduino/norisugoshi_ble/).
+const BLE_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const BLE_CMD     = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // characteristic we write 1 byte to
+// command bytes the firmware understands: 0x01 = alert (LED/haptic on), 0x00 = clear (off)
+const BLE_ALERT = 0x01, BLE_CLEAR = 0x00;
+
+// ============================================================ STATE
+const S = {
+  railways: {},        // id -> { ja, en, order:[{idx,id,ja,en}], pos:{id->arrayIndex} }
+  line: "",
+  trains: [],          // live trains on current line
+  train: null,         // the selected train object
+  trainNo: "",
+  travelDir: 0,        // +1 = moving toward higher index, -1 = lower (locked at selection)
+  destId: "",
+  alertN: 2,
+  tracking: false,
+  intervalId: null,
+  alertFired: false,
+  trainsLive: [],      // latest poll result (for the switch-train picker)
+  missCount: 0,        // consecutive polls where our train wasn't in the feed
+  lastSeen: null,      // last known data for our train
+  altOpen: false,      // user manually opened the switch-train picker
+  ble: { device: null, char: null },
+  // response-time experiment
+  t0: null, timerId: null, times: [],
+};
+
+window.S = S; // exposed for debugging
+// ============================================================ HELPERS
+const $ = (id) => document.getElementById(id);
+const tail = (s) => (s || "").split(".").pop();
+function showErr(msg){ const e=$("err"); if(!msg){e.classList.remove("show");return;} e.textContent="⚠️ "+msg; e.classList.add("show"); }
+function stationTitle(line, id){
+  const r = S.railways[line];
+  if (r && r.titleById[id]) return r.titleById[id];
+  return tail(id);
+}
+async function getJSON(path){
+  const res = await fetch(API + path);
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+// ============================================================ INIT
+init();
+async function init(){
+  try {
+    $("s1sub").textContent = "loading…";
+    // 1) all live trains  2) all railway metadata  (in parallel)
+    const [allTrains, railways] = await Promise.all([
+      getJSON("/api/trains"),
+      getJSON("/api/railways"),
+    ]);
+
+    // index railway metadata that actually has a station order
+    railways.forEach(r => {
+      const id = r["owl:sameAs"];
+      const order = (r["odpt:stationOrder"] || []).map(o => ({
+        idx: o["odpt:index"],
+        id:  o["odpt:station"],
+        ja:  (o["odpt:stationTitle"]||{}).ja || tail(o["odpt:station"]),
+        en:  (o["odpt:stationTitle"]||{}).en || tail(o["odpt:station"]),
+      })).sort((a,b)=>a.idx-b.idx);
+      // occ: every array-position a station appears at (spiral lines like Oedo
+      // list a station twice, so a single index can't represent it).
+      const occ = {}, titleById = {};
+      order.forEach((o,i)=>{ (occ[o.id]=occ[o.id]||[]).push(i); titleById[o.id]=`${o.ja} (${o.en})`; });
+      S.railways[id] = {
+        ja: r["dc:title"] || tail(id),
+        en: (r["odpt:railwayTitle"]||{}).en || tail(id),
+        order, occ, titleById,
+      };
+    });
+
+    // a line is "alive" if it has live trains AND we have its station order
+    const counts = {};
+    allTrains.forEach(t => { const rw=t["odpt:railway"]; counts[rw]=(counts[rw]||0)+1; });
+    const alive = Object.keys(counts)
+      .filter(rw => S.railways[rw] && S.railways[rw].order.length > 0)
+      .sort((a,b)=>counts[b]-counts[a]);
+
+    const sel = $("selLine");
+    if (alive.length === 0){
+      sel.innerHTML = '<option value="">no lines running right now</option>';
+      $("s1sub").textContent = "0 lines live";
+      return;
+    }
+    sel.innerHTML = '<option value="">— select your line —</option>' +
+      alive.map(rw => {
+        const r = S.railways[rw];
+        return `<option value="${rw}">${r.ja} / ${r.en} · ${counts[rw]} running</option>`;
+      }).join("");
+    $("s1sub").textContent = `${alive.length} lines live`;
+  } catch(e){
+    showErr("Could not reach the proxy. Run  node server.js  and open http://localhost:3000  (" + e.message + ")");
+    $("s1sub").textContent = "offline";
+  }
+}
+
+// ============================================================ STEP 1 -> 2
+$("selLine").addEventListener("change", onLine);
+async function onLine(){
+  S.line = $("selLine").value;
+  S.train = null; S.trainNo = "";
+  resetFrom(2);
+  if (!S.line) return;
+  $("s1").classList.add("done");
+
+  // populate destination from station order (unique ids — spiral lines repeat a station)
+  const r = S.railways[S.line];
+  const seen = new Set();
+  $("selDest").innerHTML = '<option value="">— select —</option>' +
+    r.order.filter(o => !seen.has(o.id) && seen.add(o.id))
+           .map(o => `<option value="${o.id}">${o.ja} (${o.en})</option>`).join("");
+
+  // fetch live trains on this line for the picker
+  $("card2").style.display = "block";
+  $("s2sub").innerHTML = '<span class="spin d"></span>';
+  try {
+    S.trains = await getJSON("/api/trains?railway=" + encodeURIComponent(S.line));
+    renderTrainPicker();
+  } catch(e){
+    showErr("Could not load trains for this line (" + e.message + ")");
+  }
+}
+
+function renderTrainPicker(){
+  const r = S.railways[S.line];
+  $("s2sub").textContent = S.trains.length + " trains";
+  if (!S.trains.length){ $("trainList").innerHTML = '<p class="hint">No live trains on this line right now.</p>'; return; }
+
+  // sort by current station index for a tidy list
+  const idxOf = (t) => { const o = r.occ[t["odpt:fromStation"]]; return o ? o[0] : 999; };
+  const sorted = [...S.trains].sort((a,b)=>idxOf(a)-idxOf(b));
+
+  $("trainList").innerHTML = sorted.map(t => {
+    const no   = t["odpt:trainNumber"] || tail(t["owl:sameAs"]);
+    const from = t["odpt:fromStation"];
+    const to   = t["odpt:toStation"];
+    const dest = (t["odpt:destinationStation"]||[])[0];
+    const fromN = stationTitle(S.line, from);
+    const posTxt = to ? `${fromN} → ${stationTitle(S.line,to)}` : `${fromN} に停車中`;
+    const destTxt = dest ? `${stationTitle(S.line,dest)}行` : tail(t["odpt:railDirection"]);
+    const delay = t["odpt:delay"]||0;
+    return `<div class="train-opt" data-no="${no}" onclick="pickTrain('${no}')">
+        <span class="train-no">${no}</span>
+        <div class="train-meta">
+          <div class="pos">${posTxt}</div>
+          <div class="sub">${destTxt}${delay>0?` · ${delay}s遅延`:""}</div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function pickTrain(no){
+  S.trainNo = no;
+  S.train = S.trains.find(t => (t["odpt:trainNumber"]||tail(t["owl:sameAs"]))===no);
+  document.querySelectorAll(".train-opt").forEach(el=>el.classList.toggle("sel", el.dataset.no===no));
+  $("s2").classList.add("done");
+  $("card3").style.display = "block";
+  checkReady();
+}
+
+// ============================================================ STEP 3
+$("selDest").addEventListener("change", checkReady);
+function checkReady(){
+  S.destId = $("selDest").value;
+  const ok = S.line && S.trainNo && S.destId;
+  if (ok) $("s3").classList.add("done"); else $("s3").classList.remove("done");
+  $("btnStart").disabled = !ok;
+}
+
+function resetFrom(step){
+  if (step<=2){ $("card2").style.display="none"; $("s2").classList.remove("done"); $("trainList").innerHTML=""; }
+  if (step<=3){ $("card3").style.display="none"; $("s3").classList.remove("done"); $("selDest").innerHTML='<option value="">— select —</option>'; }
+  $("btnStart").disabled = true;
+}
+
+// ============================================================ TRACKING
+async function startTracking(){
+  S.alertN = parseInt($("selAlert").value,10);
+  S.alertFired = false;
+  S.missCount = 0; S.lastSeen = null;
+  S.altOpen = false; updateSwitchBtn();
+  S.tracking = true;
+
+  // lock travel direction from the train's reported next stop (most reliable),
+  // else infer from the chosen destination relative to current position.
+  const r = S.railways[S.line];
+  const cur = currentNode(r, S.train, +1);   // best-effort node + dir from from/to
+  if (cur.dir !== 0) S.travelDir = cur.dir;
+  else {
+    // stopped train: pick whichever direction reaches the destination
+    const node = cur.node;
+    S.travelDir = (node>=0 && walk(r.order, node, +1, S.destId) != null) ? +1 : -1;
+  }
+  S._startNode = null; // boarding node, set on first render for the progress bar
+
+  // ask for notification permission up front
+  if ("Notification" in window && Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch(_){}
+  }
+
+  $("setupView").style.display = "none";
+  $("trackView").style.display = "block";
+  $("liveDot").style.display = "block";
+  $("pFrom").textContent = stationTitle(S.line, S.train["odpt:fromStation"]);
+  $("pTo").textContent   = stationTitle(S.line, S.destId);
+
+  await poll();
+  S.intervalId = setInterval(poll, POLL_MS);
+}
+
+function stopTracking(){
+  clearInterval(S.intervalId); clearInterval(S.timerId);
+  S.tracking=false;
+  bleSend(BLE_CLEAR);                  // make sure the device is left off
+  $("liveDot").style.display="none";
+  ["alertBanner","arriveBanner","warnBanner","timer"].forEach(id=>$(id).classList.remove("show"));
+  S.altOpen=false; updateSwitchBtn(); hideAlts();
+  $("trackView").style.display="none";
+  $("setupView").style.display="block";
+}
+
+async function poll(){
+  if (!S.tracking) return;
+  const btn = $("btnRefresh");
+  btn.disabled = true; btn.innerHTML = '<span class="spin d"></span> …';
+  try {
+    const trains = await getJSON("/api/trains?railway=" + encodeURIComponent(S.line));
+    S.trainsLive = trains;
+    const t = trains.find(x => (x["odpt:trainNumber"]||tail(x["owl:sameAs"]))===S.trainNo);
+    showErr("");
+    if (!t){
+      // ODPT sometimes drops a train for a poll or two, or it finished its run.
+      // Keep the last known position on screen and offer a replacement rather
+      // than forcing the user back to setup.
+      S.missCount++;
+      $("tStatus").textContent = S.missCount<=1 ? "信号待ち… re-checking" : "列車が見つかりません";
+      $("tStatus").className = "badge amber";
+      warn(S.missCount<=1
+        ? `Train ${S.trainNo} dropped out of the feed for a moment — re-checking…`
+        : `Train ${S.trainNo} is no longer in the feed (it may have finished its run). Pick a replacement below if you're still on board.`);
+      if (S.missCount>=2) showAlts(`🔄 ${stationTitle(S.line,S.destId)} ゆきの列車`,
+        `Your train left the feed. Tap the train you're actually on:`);
+    } else {
+      S.missCount = 0; S.lastSeen = t; S.train = t;
+      render(t);
+    }
+    $("refreshHint").textContent =
+      `更新 ${new Date().toLocaleTimeString("ja-JP")} · ${trains.length} trains on line · auto ${POLL_MS/1000}s`;
+  } catch(e){
+    showErr("Fetch failed (" + e.message + ")");
+    $("tStatus").textContent="offline"; $("tStatus").className="badge red";
+  }
+  btn.disabled=false; btn.innerHTML="🔄 Refresh";
+}
+
+// ---- path walking (handles spiral lines where a station repeats) ----------
+// Walk along the station order from `node` in `dir`; return #stops to destId, or null.
+function walk(order, node, dir, destId){
+  if (node<0 || !dir) return null;
+  for (let k=0; ; k++){
+    const j = node + dir*k;
+    if (j<0 || j>=order.length) return null;
+    if (order[j].id === destId) return k;
+  }
+}
+// Resolve the train's current node (array index) and travel direction from from/to.
+function currentNode(r, t, dirHint){
+  const fromId = t["odpt:fromStation"], toId = t["odpt:toStation"];
+  const occ = r.occ[fromId] || [];
+  if (toId){
+    for (const i of occ){
+      if (r.order[i+1] && r.order[i+1].id===toId) return { node:i, dir:+1 };
+      if (r.order[i-1] && r.order[i-1].id===toId) return { node:i, dir:-1 };
+    }
+  }
+  // stopped (no toStation) or unmatched: choose the occurrence from which the
+  // destination is reachable in the locked direction.
+  const dir = S.travelDir || dirHint || +1;
+  for (const i of occ){ if (walk(r.order, i, dir, S.destId)!=null) return { node:i, dir:0 }; }
+  return { node: occ.length ? occ[0] : -1, dir:0 };
+}
+
+function render(t){
+  const r = S.railways[S.line];
+  const fromId = t["odpt:fromStation"], toId = t["odpt:toStation"];
+  const destBound = (t["odpt:destinationStation"]||[])[0];
+  const delay = t["odpt:delay"]||0;
+
+  $("tNo").textContent = S.trainNo;
+  $("tPos").textContent = toId ? `${stationTitle(S.line,fromId)} → ${stationTitle(S.line,toId)}`
+                               : `${stationTitle(S.line,fromId)} 停車中`;
+  $("tDest").textContent = destBound ? stationTitle(S.line,destBound) : tail(t["odpt:railDirection"]);
+  $("tDelay").textContent = delay>0 ? `+${delay}s` : "定刻 on time";
+
+  // current node + travel direction, then stops to destination by walking the path
+  const cur = currentNode(r, t, S.travelDir);
+  const dir = cur.dir || S.travelDir || +1;
+  let stops = null, wrongWay = false, destNode = -1;
+  if (cur.node>=0){
+    let d = walk(r.order, cur.node, dir, S.destId);
+    if (d!=null){ stops=d; destNode = cur.node + dir*d; }
+    else {
+      const back = walk(r.order, cur.node, -dir, S.destId);
+      if (back!=null){ stops=back; wrongWay=true; destNode = cur.node - dir*back; }
+    }
+  }
+
+  const cd = $("countdown");
+  $("arriveBanner").classList.remove("show"); // re-shown only by the arrived branch
+  if (stops==null){
+    cd.textContent="—"; cd.className="countdown";
+    $("tStatus").textContent="位置不明"; $("tStatus").className="badge gray";
+    keepAlts();
+  } else if (wrongWay){
+    cd.innerHTML = `${stops}<small> stops · 逆方向?</small>`; cd.className="countdown warn";
+    $("tStatus").textContent="逆方向 wrong way?"; $("tStatus").className="badge amber";
+    warn(`This train is heading away from ${stationTitle(S.line,S.destId)}. Tap the correct train below — no need to start over.`);
+    showAlts(`✅ ${stationTitle(S.line,S.destId)} ゆきの列車 — trains going your way`,
+      `These are heading toward your stop. Tap the one you're on:`);
+  } else if (stops===0){
+    cd.innerHTML = `🚉<small> 到着 arrived</small>`; cd.className="countdown arrived";
+    $("tStatus").textContent="到着 arrived"; $("tStatus").className="badge green";
+    arrived(); keepAlts();
+  } else {
+    clearWarn(); keepAlts();
+    cd.innerHTML = `${stops}<small> stop${stops>1?"s":""} 先</small>`;
+    cd.className = "countdown" + (stops<=S.alertN ? " alert" : stops<=S.alertN+1 ? " warn" : "");
+    if (stops<=S.alertN){ fireAlert(stops); $("tStatus").textContent="⚡ まもなく ALERT"; $("tStatus").className="badge red"; }
+    else { clearAlert(); $("tStatus").textContent="追跡中 tracking"; $("tStatus").className="badge blue"; }
+  }
+
+  // progress bar — fraction of the journey (boarding node -> destination) covered
+  if (cur.node>=0 && destNode>=0 && !wrongWay){
+    if (S._startNode==null) S._startNode = cur.node;
+    const span = Math.abs(destNode - S._startNode) || 1;
+    const done = span - Math.abs(destNode - cur.node);
+    $("pFill").style.width = Math.max(0, Math.min(100, (done/span)*100)) + "%";
+  }
+
+  renderStops(r, cur.node, destNode, dir);
+}
+
+function renderStops(r, node, destNode, dir){
+  const list = $("stopsList");
+  if (node<0 || destNode<0){ list.innerHTML=""; return; }
+  const lo = Math.min(node,destNode), hi = Math.max(node,destNode);
+  const start = Math.max(0, lo-1), end = Math.min(r.order.length-1, hi+1);
+  const seq = [];
+  for (let i=start;i<=end;i++) seq.push(i);
+  if (dir<0) seq.reverse();
+  let html = "";
+  seq.forEach(i=>{
+    const o = r.order[i];
+    const isCur = i===node, isTgt = i===destNode;
+    const passed  = dir>0 ? i<node : i>node;
+    const between = dir>0 ? (i>node && i<destNode) : (i<node && i>destNode);
+    let cls=""; if(passed)cls="passed"; if(isCur)cls="cur"; if(isTgt)cls="tgt";
+    if(between && Math.abs(destNode-i)<=S.alertN) cls+=" zone";
+    const tag = isCur ? '<span class="tag here">現在地</span>' : isTgt ? '<span class="tag off">降車</span>' : "";
+    html += `<li class="${cls}"><span class="dot"></span>${o.ja} <span style="color:#9ca3af;font-size:11px">${o.en}</span>${tag}</li>`;
+  });
+  list.innerHTML = html;
+}
+
+// ============================================================ SWITCH TRAIN (wrong-way / lost)
+// Evaluate ANY train independently of the currently-tracked one: can it reach the
+// chosen destination ahead, and in how many stops? Direction is inferred from the
+// train's own from/to (or its bound-for terminus when stopped).
+function evalTrain(r, t, destId){
+  const fromId=t["odpt:fromStation"], toId=t["odpt:toStation"];
+  const occ = r.occ[fromId] || [];
+  const bound = (t["odpt:destinationStation"]||[])[0];
+  const cands = [];
+  if (toId){
+    for (const i of occ){
+      if (r.order[i+1] && r.order[i+1].id===toId) cands.push({node:i,dir:+1});
+      if (r.order[i-1] && r.order[i-1].id===toId) cands.push({node:i,dir:-1});
+    }
+  }
+  if (!cands.length){ // stopped: infer direction from where the train is bound
+    for (const i of occ) for (const dir of [+1,-1])
+      if (bound && walk(r.order,i,dir,bound)!=null) cands.push({node:i,dir});
+    if (!cands.length) for (const i of occ){ cands.push({node:i,dir:+1}); cands.push({node:i,dir:-1}); }
+  }
+  let best=null;
+  for (const c of cands){
+    const d = walk(r.order, c.node, c.dir, destId);
+    if (d!=null && d>0 && (best==null || d<best.stops)) best={stops:d, node:c.node, dir:c.dir};
+  }
+  return best; // null => destination is not ahead for this train
+}
+
+// Trains heading toward the chosen destination, nearest the user's position first.
+function findCandidates(){
+  const r = S.railways[S.line];
+  const userNode = S.train ? currentNode(r, S.train).node : -1;
+  const out = [];
+  for (const t of (S.trainsLive||[])){
+    const no = t["odpt:trainNumber"] || tail(t["owl:sameAs"]);
+    if (no===S.trainNo) continue;
+    const ev = evalTrain(r, t, S.destId);
+    if (ev) out.push({ t, no, ev, prox: userNode>=0 ? Math.abs(ev.node-userNode) : ev.stops });
+  }
+  out.sort((a,b)=> a.prox-b.prox || a.ev.stops-b.ev.stops);
+  return out;
+}
+
+// allowEmpty: when the user opened the picker manually, keep it visible with a
+// message even if no other train is currently heading their way.
+function showAlts(title, sub, allowEmpty){
+  const cands = findCandidates();
+  if (!cands.length && !allowEmpty){ hideAlts(); return; }
+  $("altTitle").textContent = title;
+  $("altSub").textContent = sub;
+  $("altList").innerHTML = cands.length ? cands.slice(0,6).map(({t,no,ev})=>{
+    const from=t["odpt:fromStation"], to=t["odpt:toStation"];
+    const pos = to ? `${stationTitle(S.line,from)} → ${stationTitle(S.line,to)}`
+                   : `${stationTitle(S.line,from)} 停車中`;
+    const bound=(t["odpt:destinationStation"]||[])[0];
+    const boundTxt = bound ? `${stationTitle(S.line,bound)}行` : tail(t["odpt:railDirection"]);
+    return `<div class="train-opt" onclick="switchTrain('${no}')">
+        <span class="train-no">${no}</span>
+        <div class="train-meta">
+          <div class="pos">${pos}</div>
+          <div class="sub">${boundTxt} · ${ev.stops} stop${ev.stops>1?"s":""} → ${stationTitle(S.line,S.destId)}</div>
+        </div>
+      </div>`;
+  }).join("") : `<p class="hint" style="text-align:left;margin:.2rem 0">No other train is currently heading toward ${stationTitle(S.line,S.destId)}.</p>`;
+  $("altCard").style.display = "block";
+}
+function hideAlts(){ $("altCard").style.display="none"; $("altList").innerHTML=""; }
+
+// Manual switch-train picker (always available via the button).
+const MANUAL_ALT_TITLE = "🔀 別の列車に変更 — switch train";
+const manualAltSub = () => `All trains heading to ${stationTitle(S.line,S.destId)}. Tap the one you're on:`;
+function toggleAlts(){
+  S.altOpen = !S.altOpen;
+  if (S.altOpen){ showAlts(MANUAL_ALT_TITLE, manualAltSub(), true);
+                  $("altCard").scrollIntoView({behavior:"smooth", block:"center"}); }
+  else hideAlts();
+  updateSwitchBtn();
+}
+function updateSwitchBtn(){
+  const b = $("btnSwitch"); if (!b) return;
+  b.textContent = S.altOpen ? "✕ 閉じる — close" : "🔀 別の列車に変更 — wrong train? switch";
+}
+// Called from render() good branches: keep the manual picker open & fresh, else hide.
+function keepAlts(){ if (S.altOpen) showAlts(MANUAL_ALT_TITLE, manualAltSub(), true); else hideAlts(); }
+
+// Re-target tracking onto a different train without leaving the tracking screen.
+function switchTrain(no){
+  const t = (S.trainsLive||[]).find(x => (x["odpt:trainNumber"]||tail(x["owl:sameAs"]))===no);
+  if (!t) return;
+  const r = S.railways[S.line];
+  const ev = evalTrain(r, t, S.destId);
+  S.trainNo=no; S.train=t; S.lastSeen=t; S.missCount=0;
+  S.travelDir = ev ? ev.dir : (currentNode(r,t).dir || S.travelDir || 1);
+  S.alertFired=false; S._startNode=null;
+  S.altOpen=false; updateSwitchBtn();
+  clearWarn(); hideAlts();
+  $("pFrom").textContent = stationTitle(S.line, t["odpt:fromStation"]);
+  render(t);
+}
+
+// ============================================================ ALERTS / SIGNALS
+function warn(msg){ $("warnText").textContent=msg; $("warnBanner").classList.add("show"); }
+function clearWarn(){ $("warnBanner").classList.remove("show"); }
+
+function fireAlert(stops){
+  clearWarn();
+  $("alertText").textContent = `あと ${stops} 駅で ${stationTitle(S.line,S.destId)}！降りる準備を — ${stops} stop${stops>1?"s":""} to your stop!`;
+  $("alertBanner").classList.add("show");
+  if (S.alertFired) return;     // fire the signal channels once per approach
+  S.alertFired = true;
+  signal();                     // notification + vibrate + beep + BLE
+  startTimer();
+}
+function clearAlert(){
+  $("alertBanner").classList.remove("show");
+  if (S.alertFired) bleSend(BLE_CLEAR);   // turn the LED/haptic off on the alert→clear transition
+  S.alertFired=false;
+}
+
+function arrived(){
+  clearAlert();
+  $("arriveText").textContent = `${stationTitle(S.line,S.destId)} に到着しました — you've arrived.`;
+  $("arriveBanner").classList.add("show");
+}
+
+// the multi-channel "signal" — extend BLE payload later for the haptic glove
+function signal(){
+  // 1) browser notification
+  if ("Notification" in window && Notification.permission==="granted"){
+    try { new Notification("乗り過ごし防止 ⚡", { body:`まもなく ${stationTitle(S.line,S.destId)}。降りる準備を！`, requireInteraction:true }); } catch(_){}
+  }
+  // 2) phone vibration
+  if (navigator.vibrate) navigator.vibrate([300,120,300,120,500]);
+  // 3) audible beep
+  beep();
+  // 4) BLE haptic device (LED stand-in)
+  bleSend(BLE_ALERT);
+}
+
+function beep(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    [0,0.25,0.5].forEach(dt=>{
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      o.type="sine"; o.frequency.value=880;
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.001, ctx.currentTime+dt);
+      g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime+dt+0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+dt+0.18);
+      o.start(ctx.currentTime+dt); o.stop(ctx.currentTime+dt+0.2);
+    });
+  }catch(_){}
+}
+
+// ============================================================ BLE (Web Bluetooth)
+async function connectBLE(){
+  if (!navigator.bluetooth){ alert("Web Bluetooth not supported here. Use Chrome/Edge on desktop or Android."); return; }
+  try{
+    const dev = await navigator.bluetooth.requestDevice({
+      filters: [{ services:[BLE_SERVICE] }],
+      optionalServices:[BLE_SERVICE],
+    });
+    const srv = await dev.gatt.connect();
+    const svc = await srv.getPrimaryService(BLE_SERVICE);
+    const ch  = await svc.getCharacteristic(BLE_CMD);
+    S.ble.device = dev; S.ble.char = ch;
+    dev.addEventListener("gattserverdisconnected", ()=>{ S.ble.char=null; setBlePill(false); });
+    setBlePill(true, dev.name||"device");
+    $("btnBleTest").disabled = false;
+  }catch(e){
+    if (e.name!=="NotFoundError") alert("BLE connect failed: "+e.message);
+  }
+}
+function setBlePill(on,name){
+  const p=$("blePill"); p.classList.toggle("on",on);
+  p.textContent = on ? `🟢 ${name||"connected"}` : "not connected";
+  if (!on) $("btnBleTest").disabled = true;
+}
+// Write one command byte to the device (0x01 = alert/on, 0x00 = clear/off).
+async function bleSend(value){
+  if (!S.ble.char) return;
+  try { await S.ble.char.writeValue(Uint8Array.of(value)); }
+  catch(e){ console.warn("BLE write failed", e.message); }
+}
+// Manual test from the setup screen: blip the LED on for 1.5s so you can verify wiring.
+async function bleTest(){
+  if (!S.ble.char){ alert("Connect a device first."); return; }
+  await bleSend(BLE_ALERT);
+  setTimeout(()=>bleSend(BLE_CLEAR), 1500);
+}
+
+// ============================================================ RESPONSE TIMER (experiment)
+function startTimer(){
+  $("timer").classList.add("show"); $("timerRes").style.display="none";
+  S.t0 = Date.now(); $("timerVal").textContent="0.0s";
+  clearInterval(S.timerId);
+  S.timerId = setInterval(()=>{ $("timerVal").textContent = ((Date.now()-S.t0)/1000).toFixed(1)+"s"; },100);
+}
+function stopTimer(){
+  if (!S.t0) return;
+  clearInterval(S.timerId);
+  const sec = ((Date.now()-S.t0)/1000);
+  S.times.push(sec);
+  const avg = S.times.reduce((a,b)=>a+b,0)/S.times.length;
+  $("timerVal").textContent = sec.toFixed(2)+"s";
+  const res=$("timerRes"); res.style.display="block";
+  res.textContent = `✅ ${sec.toFixed(2)}s · session avg ${avg.toFixed(2)}s (n=${S.times.length})`;
+  S.t0=null;
+}
+</script>
+</body>
+</html>

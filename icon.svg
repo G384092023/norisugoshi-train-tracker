@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#16a34a"/>
+  <!-- train body -->
+  <rect x="150" y="138" width="212" height="218" rx="42" fill="#ffffff"/>
+  <!-- windows -->
+  <rect x="176" y="170" width="68" height="64" rx="12" fill="#16a34a"/>
+  <rect x="268" y="170" width="68" height="64" rx="12" fill="#16a34a"/>
+  <!-- door seam -->
+  <rect x="248" y="250" width="16" height="92" rx="6" fill="#16a34a" opacity="0.18"/>
+  <!-- headlights -->
+  <circle cx="190" cy="300" r="13" fill="#16a34a"/>
+  <circle cx="322" cy="300" r="13" fill="#16a34a"/>
+  <!-- wheels -->
+  <circle cx="198" cy="378" r="30" fill="#ffffff"/>
+  <circle cx="314" cy="378" r="30" fill="#ffffff"/>
+  <circle cx="198" cy="378" r="13" fill="#16a34a"/>
+  <circle cx="314" cy="378" r="13" fill="#16a34a"/>
+</svg>

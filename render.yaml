@@ -1,0 +1,15 @@
+# Render Blueprint — one-click-ish deploy config.
+# In Render: New + > Blueprint, connect the repo, and it reads this file.
+# (You can also skip this and create a "Web Service" manually — see DEPLOY.md.)
+services:
+  - type: web
+    name: norisugoshi-train-tracker
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      # Set the real value in the Render dashboard (Environment tab).
+      # Keeping it here as sync:false means "prompt me, don't store in git".
+      - key: ODPT_CONSUMER_KEY
+        sync: false
