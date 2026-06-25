@@ -649,11 +649,60 @@ async function startTracking(){
 const parseHM = (s) => { const [h,m] = s.split(":").map(Number); return h*60 + m; }; // minutes (can be ≥1440)
 const fmtHM   = (m) => { m = ((m % 1440) + 1440) % 1440; return String(Math.floor(m/60)).padStart(2,"0") + ":" + String(m%60).padStart(2,"0"); };
 
+// ---- Japanese calendar: which ODPT timetable applies today (Weekday vs SaturdayHoliday) ----
+// Self-contained (no external API). Covers fixed holidays, Happy-Monday holidays,
+// equinoxes (formula valid ~1980–2099), substitute holidays (振替休日), citizens'
+// holidays (国民の休日 / Silver Week), and the New-Year holiday-schedule window.
+const nthMonday = (y,m,n) => { const first = new Date(Date.UTC(y,m-1,1)).getUTCDay(); return 1 + ((1-first+7)%7) + (n-1)*7; };
+const springEquinox = (y) => Math.floor(20.8431 + 0.242194*(y-1980) - Math.floor((y-1980)/4));
+const autumnEquinox = (y) => Math.floor(23.2488 + 0.242194*(y-1980) - Math.floor((y-1980)/4));
+function isBaseHoliday(y,m,d){
+  switch (`${m}/${d}`){
+    case "1/1": case "2/11": case "4/29": case "5/3": case "5/4": case "5/5":
+    case "11/3": case "11/23": return true;
+    case "2/23": return y>=2020;   // 天皇誕生日 (Reiwa)
+    case "8/11": return y>=2016;   // 山の日
+  }
+  if (m===1  && d===nthMonday(y,1,2))  return true; // 成人の日
+  if (m===7  && d===nthMonday(y,7,3))  return true; // 海の日
+  if (m===9  && d===nthMonday(y,9,3))  return true; // 敬老の日
+  if (m===10 && d===nthMonday(y,10,2)) return true; // スポーツの日
+  if (m===3  && d===springEquinox(y))  return true; // 春分の日
+  if (m===9  && d===autumnEquinox(y))  return true; // 秋分の日
+  return false;
+}
+function isJpHolidayUTC(D){
+  const y=D.getUTCFullYear(), m=D.getUTCMonth()+1, d=D.getUTCDate();
+  if (isBaseHoliday(y,m,d)) return true;
+  const base = (X) => isBaseHoliday(X.getUTCFullYear(), X.getUTCMonth()+1, X.getUTCDate());
+  if (D.getUTCDay()!==0){
+    // 振替休日: nearest day after a Sunday holiday, through consecutive holidays
+    let p=new Date(D); p.setUTCDate(p.getUTCDate()-1);
+    while (base(p)){ if (p.getUTCDay()===0) return true; p.setUTCDate(p.getUTCDate()-1); }
+    // 国民の休日: a weekday sandwiched between two holidays
+    const a=new Date(D); a.setUTCDate(a.getUTCDate()-1);
+    const b=new Date(D); b.setUTCDate(b.getUTCDate()+1);
+    if (base(a) && base(b)) return true;
+  }
+  return false;
+}
+// Returns the ODPT calendar id that applies in Japan today.
+function pickCalendar(){
+  const p = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Tokyo",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+  const g = (t) => +p.find(x=>x.type===t).value;
+  const y=g("year"), m=g("month"), d=g("day");
+  const D = new Date(Date.UTC(y,m-1,d));
+  const dow = D.getUTCDay();
+  const newYear = (m===1 && d<=3) || (m===12 && d===31);   // standard NY holiday schedule
+  const holiday = dow===0 || dow===6 || newYear || isJpHolidayUTC(D);
+  return holiday ? "odpt.Calendar:SaturdayHoliday" : "odpt.Calendar:Weekday";
+}
+
 // Fetch the selected train's timetable and find the scheduled time at the destination.
 async function fetchTimetable(){
   S.schedMin = null;
   try {
-    const cal = [0,6].includes(new Date().getDay()) ? "odpt.Calendar:SaturdayHoliday" : "odpt.Calendar:Weekday";
+    const cal = pickCalendar();
     const tt = await getJSON(`/api/timetable?railway=${encodeURIComponent(S.line)}`
                            + `&train=${encodeURIComponent(S.trainNo)}&calendar=${cal}`);
     const stops = (tt[0] || {})["odpt:trainTimetableObject"] || [];
