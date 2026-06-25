@@ -294,6 +294,7 @@ const S = {
   railways: {},        // id -> { ja, en, order:[{idx,id,ja,en}], pos:{id->arrayIndex} }
   line: "",
   trains: [],          // live trains on current line
+  dirByRailDir: {},    // odpt:railDirection -> +1/-1, learned from in-transit trains
   train: null,         // the selected train object
   trainNo: "",
   travelDir: 0,        // +1 = moving toward higher index, -1 = lower (locked at selection)
@@ -412,6 +413,7 @@ async function onLine(){
   $("s2sub").innerHTML = '<span class="spin d"></span>';
   try {
     S.trains = await getJSON("/api/trains?railway=" + encodeURIComponent(S.line));
+    buildDirMap();
     renderTrainPicker();
   } catch(e){
     showErr("Could not load trains for this line (" + e.message + ")");
@@ -453,6 +455,7 @@ async function refreshTrains(){
   const b = $("btnTrainRefresh"); b.disabled = true; b.textContent = "⏳";
   try {
     S.trains = await getJSON("/api/trains?railway=" + encodeURIComponent(S.line));
+    buildDirMap();
     renderTrainPicker();
     if (S.trainNo){
       const still = S.trains.find(t => (t["odpt:trainNumber"]||tail(t["owl:sameAs"]))===S.trainNo);
@@ -484,24 +487,49 @@ function pickTrain(no){
 }
 
 // ============================================================ STEP 3 — direction-aware destination
+// Learn which way each odpt:railDirection (e.g. "Eastbound"/"Westbound") points, using
+// in-transit trains whose from->to we can resolve. Lets us still get the direction for a
+// STOPPED train whose destination is off this line (through-service, e.g. → Sasazuka).
+function buildDirMap(){
+  const r = S.railways[S.line]; if (!r) return;
+  S.dirByRailDir = {};
+  for (const t of S.trains){
+    const rd = t["odpt:railDirection"]; if (!rd || S.dirByRailDir[rd]!=null) continue;
+    const toId = t["odpt:toStation"]; if (!toId) continue;
+    const occ = r.occ[t["odpt:fromStation"]] || [];
+    for (const i of occ){
+      if (r.order[i+1] && r.order[i+1].id===toId){ S.dirByRailDir[rd] = +1; break; }
+      if (r.order[i-1] && r.order[i-1].id===toId){ S.dirByRailDir[rd] = -1; break; }
+    }
+  }
+}
+
 // Work out where the selected train is and which way it's going.
 function trainPath(r, t){
   const fromId = t["odpt:fromStation"], toId = t["odpt:toStation"], occ = r.occ[fromId] || [];
+  const term = (t["odpt:destinationStation"]||[])[0];
   let node = -1, dir = 0;
+
+  // 1) from -> to adjacency (most reliable)
   if (toId){
     for (const i of occ){
       if (r.order[i+1] && r.order[i+1].id===toId){ node=i; dir=+1; break; }
       if (r.order[i-1] && r.order[i-1].id===toId){ node=i; dir=-1; break; }
     }
   }
-  const term = (t["odpt:destinationStation"]||[])[0];
-  if (node < 0){ // stopped train: infer direction from where it's bound
+  // 2) walk toward the destination, if it's on this line
+  if (node < 0 && term){
     for (const i of occ){
-      if (term && walk(r.order, i, +1, term)!=null){ node=i; dir=+1; break; }
-      if (term && walk(r.order, i, -1, term)!=null){ node=i; dir=-1; break; }
+      if (walk(r.order, i, +1, term)!=null){ node=i; dir=+1; break; }
+      if (walk(r.order, i, -1, term)!=null){ node=i; dir=-1; break; }
     }
-    if (node < 0){ node = occ.length ? occ[0] : -1; dir = +1; }
   }
+  // 3) fall back to the learned railDirection (handles stopped train + off-line destination)
+  if (node < 0){
+    node = occ.length ? occ[0] : -1;
+    dir  = S.dirByRailDir[t["odpt:railDirection"]] || +1;
+  }
+
   let terminusNode = -1;
   if (node>=0 && term){ const d = walk(r.order, node, dir, term); if (d!=null) terminusNode = node + dir*d; }
   if (terminusNode < 0) terminusNode = dir>0 ? r.order.length-1 : 0; // fall back to end of line
