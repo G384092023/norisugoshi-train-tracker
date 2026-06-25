@@ -173,6 +173,24 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, data);                  // pass it straight through
     }
 
+    // ---- ROUTE: a train's scheduled timetable -----------------------------
+    // /api/timetable?railway=X&train=NUMBER&calendar=odpt.Calendar:Weekday
+    // Returns the planned per-station times for that train, so the app can show
+    // a scheduled ETA at the destination (and add the live delay on top).
+    if (url.pathname === "/api/timetable") {
+      const railway  = url.searchParams.get("railway")  || "";
+      const train    = url.searchParams.get("train")    || "";
+      const calendar = url.searchParams.get("calendar") || "";
+      const odptUrl =
+        `${ODPT}/odpt:TrainTimetable?acl:consumerKey=${API_KEY}` +
+        (railway  ? `&odpt:railway=${encodeURIComponent(railway)}` : "") +
+        (train    ? `&odpt:trainNumber=${encodeURIComponent(train)}` : "") +
+        (calendar ? `&odpt:calendar=${encodeURIComponent(calendar)}` : "");
+      const data = await fetchOdpt(odptUrl);
+      console.log(`[${now()}] /api/timetable ${railway} ${train} ${calendar} -> ${JSON.parse(data).length}`);
+      return sendJson(res, 200, data);
+    }
+
     // ---- ROUTE: railway metadata (cached) ---------------------------------
     if (url.pathname === "/api/railways") {
       // Serve from cache if it's fresh (younger than RAILWAY_TTL).

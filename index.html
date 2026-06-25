@@ -249,6 +249,8 @@
       <div class="srow"><span class="sk">列車 Train</span><span class="sv" id="tNo">—</span></div>
       <div class="srow"><span class="sk">現在地 Position</span><span class="sv" id="tPos">—</span></div>
       <div class="srow"><span class="sk">行先 Bound for</span><span class="sv" id="tDest">—</span></div>
+      <div class="srow"><span class="sk">到着予定 Scheduled</span><span class="sv" id="etaSched">—</span></div>
+      <div class="srow"><span class="sk">予測到着 ETA now</span><span class="sv" id="etaNow">—</span></div>
       <div class="srow"><span class="sk">遅延 Delay</span><span class="sv" id="tDelay">—</span></div>
       <div class="srow"><span class="sk">状態 Status</span><span class="sv"><span class="badge gray" id="tStatus">…</span></span></div>
     </div>
@@ -299,6 +301,8 @@ const S = {
   intervalId: null,
   alertFired: false,
   alertAcked: false,   // user pressed "I'm awake" — silence the device until re-armed
+  schedMin: null,      // scheduled arrival at destination (minutes-of-day, from timetable)
+  lastVibStop: null,   // last stops-count we vibrated at (so we buzz once per stop, escalating)
   trainsLive: [],      // latest poll result (for the switch-train picker)
   missCount: 0,        // consecutive polls where our train wasn't in the feed
   lastSeen: null,      // last known data for our train
@@ -609,7 +613,7 @@ function resetFrom(step){
 async function startTracking(){
   S.alertN = parseInt($("selAlert").value,10);
   S.alertFired = false; S.alertAcked = false;
-  S.missCount = 0; S.lastSeen = null;
+  S.missCount = 0; S.lastSeen = null; S.lastVibStop = null;
   S.altOpen = false; updateSwitchBtn();
   S.tracking = true;
 
@@ -636,8 +640,27 @@ async function startTracking(){
   $("pFrom").textContent = stationTitle(S.line, S.train["odpt:fromStation"]);
   $("pTo").textContent   = stationTitle(S.line, S.destId);
 
+  await fetchTimetable();   // scheduled ETA at the destination (optional)
   await poll();
   S.intervalId = setInterval(poll, POLL_MS);
+}
+
+// ---- scheduled ETA (timetable) --------------------------------------------
+const parseHM = (s) => { const [h,m] = s.split(":").map(Number); return h*60 + m; }; // minutes (can be ≥1440)
+const fmtHM   = (m) => { m = ((m % 1440) + 1440) % 1440; return String(Math.floor(m/60)).padStart(2,"0") + ":" + String(m%60).padStart(2,"0"); };
+
+// Fetch the selected train's timetable and find the scheduled time at the destination.
+async function fetchTimetable(){
+  S.schedMin = null;
+  try {
+    const cal = [0,6].includes(new Date().getDay()) ? "odpt.Calendar:SaturdayHoliday" : "odpt.Calendar:Weekday";
+    const tt = await getJSON(`/api/timetable?railway=${encodeURIComponent(S.line)}`
+                           + `&train=${encodeURIComponent(S.trainNo)}&calendar=${cal}`);
+    const stops = (tt[0] || {})["odpt:trainTimetableObject"] || [];
+    const at = stops.find(o => o["odpt:arrivalStation"]===S.destId || o["odpt:departureStation"]===S.destId);
+    const hm = at && (at["odpt:arrivalTime"] || at["odpt:departureTime"]);
+    if (hm) S.schedMin = parseHM(hm);
+  } catch(_){ /* timetable is optional — fall back to "—" */ }
 }
 
 function stopTracking(){
@@ -722,7 +745,16 @@ function render(t){
   $("tPos").textContent = toId ? `${stationTitle(S.line,fromId)} → ${stationTitle(S.line,toId)}`
                                : `${stationTitle(S.line,fromId)} 停車中`;
   $("tDest").textContent = destBound ? stationTitle(S.line,destBound) : tail(t["odpt:railDirection"]);
-  $("tDelay").textContent = delay>0 ? `+${delay}s` : "定刻 on time";
+  $("tDelay").textContent = delay>0 ? `+${delay}s (${Math.round(delay/60)}分)` : "定刻 on time";
+
+  // scheduled vs current ETA at the destination (timetable + live delay)
+  if (S.schedMin != null){
+    const dmin = Math.round(delay/60);
+    $("etaSched").textContent = fmtHM(S.schedMin);
+    $("etaNow").textContent   = fmtHM(S.schedMin + dmin) + (dmin>0 ? ` ⚠️ +${dmin}分` : " ✓ 定刻");
+  } else {
+    $("etaSched").textContent = "—"; $("etaNow").textContent = "—";
+  }
 
   // current node + travel direction, then stops to destination by walking the path
   const cur = currentNode(r, t, S.travelDir);
@@ -752,12 +784,18 @@ function render(t){
   } else if (stops===0){
     cd.innerHTML = `🚉<small> 到着 arrived</small>`; cd.className="countdown arrived";
     $("tStatus").textContent="到着 arrived"; $("tStatus").className="badge green";
+    const wasAcked = S.alertAcked;   // arrived() re-arms the flag; capture first
     arrived(); keepAlts();
+    if (!wasAcked && S.lastVibStop!==0){ vibrateForStops(0); S.lastVibStop=0; }
   } else {
     clearWarn(); keepAlts();
     cd.innerHTML = `${stops}<small> stop${stops>1?"s":""} 先</small>`;
     cd.className = "countdown" + (stops<=S.alertN ? " alert" : stops<=S.alertN+1 ? " warn" : "");
-    if (stops<=S.alertN){ fireAlert(stops); $("tStatus").textContent="⚡ まもなく ALERT"; $("tStatus").className="badge red"; }
+    if (stops<=S.alertN){
+      fireAlert(stops); $("tStatus").textContent="⚡ まもなく ALERT"; $("tStatus").className="badge red";
+      // escalating buzz: once per stop, stronger as the train gets closer
+      if (!S.alertAcked && stops!==S.lastVibStop){ vibrateForStops(stops); S.lastVibStop=stops; }
+    }
     else { clearAlert(); $("tStatus").textContent="追跡中 tracking"; $("tStatus").className="badge blue"; }
   }
 
@@ -896,10 +934,12 @@ function switchTrain(no){
   S.trainNo=no; S.train=t; S.lastSeen=t; S.missCount=0;
   S.travelDir = ev ? ev.dir : (currentNode(r,t).dir || S.travelDir || 1);
   S.alertFired=false; S.alertAcked=false; S._startNode=null;
+  S.schedMin=null; S.lastVibStop=null;
   S.altOpen=false; updateSwitchBtn();
   clearWarn(); hideAlts();
   $("pFrom").textContent = stationTitle(S.line, t["odpt:fromStation"]);
   render(t);
+  fetchTimetable().then(() => { if (S.tracking) render(S.train); }); // refresh ETA for the new train
 }
 
 // ============================================================ ALERTS / SIGNALS
@@ -921,6 +961,7 @@ function clearAlert(){
   if (S.alertFired) bleSend(BLE_CLEAR);   // turn the LED/haptic off on the alert→clear transition
   S.alertFired=false;
   S.alertAcked=false;                     // out of the alert zone → re-arm for next time
+  S.lastVibStop=null;                     // re-arm escalating vibration too
 }
 
 function arrived(){
@@ -935,12 +976,24 @@ function signal(){
   if ("Notification" in window && Notification.permission==="granted"){
     try { new Notification("乗り過ごし防止 ⚡", { body:`まもなく ${stationTitle(S.line,S.destId)}。降りる準備を！`, requireInteraction:true }); } catch(_){}
   }
-  // 2) phone vibration
-  if (navigator.vibrate) navigator.vibrate([300,120,300,120,500]);
+  // 2) phone vibration is handled per-stop in render() (escalating), not here
   // 3) audible beep
   beep();
   // 4) BLE haptic device (LED stand-in)
   bleSend(BLE_ALERT);
+}
+
+// Escalating phone vibration: stronger/longer the closer the train gets.
+// (iOS ignores navigator.vibrate — works on Android Chrome.)
+function vibrateForStops(stops){
+  if (!navigator.vibrate) return;
+  if (stops === 0){ navigator.vibrate([600,150,600,150,700]); return; } // arrival = strongest
+  const closeness = Math.max(1, S.alertN - stops + 1);   // 1 at the edge → bigger as it nears
+  const buzz = 150 + closeness * 130;                    // longer pulses when closer
+  const pattern = [];
+  for (let i=0;i<closeness;i++){ pattern.push(buzz, 110); }
+  pattern.pop();                                         // drop trailing gap
+  navigator.vibrate(pattern);
 }
 
 function beep(){
