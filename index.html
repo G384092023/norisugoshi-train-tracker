@@ -1062,8 +1062,21 @@ function beep(){
 
 // ============================================================ BLE (Web Bluetooth)
 async function connectBLE(){
-  if (!navigator.bluetooth){ alert("Web Bluetooth not supported here. Use Chrome/Edge on desktop or Android."); return; }
+  // 1) must be a secure context (https or localhost)
+  if (!window.isSecureContext){
+    alert("⚠️ Bluetooth needs a secure page.\nOpen the https://…onrender.com address (not an http:// or IP address).");
+    return;
+  }
+  // 2) browser must actually expose Web Bluetooth
+  if (!navigator.bluetooth){
+    alert("⚠️ This browser can't use Bluetooth.\n\n"
+      + "• iPhone/iPad: Safari & Chrome don't support it — install the free \"Bluefy\" browser and open the site there.\n"
+      + "• Brave (Android/desktop): enable  brave://flags/#brave-web-bluetooth-api  then relaunch.\n"
+      + "• Otherwise use Google Chrome or Microsoft Edge.");
+    return;
+  }
   try{
+    setBlePill(false, "scanning…");
     const dev = await navigator.bluetooth.requestDevice({
       filters: [{ services:[BLE_SERVICE] }],
       optionalServices:[BLE_SERVICE],
@@ -1076,7 +1089,16 @@ async function connectBLE(){
     setBlePill(true, dev.name||"device");
     $("btnBleTest").disabled = false;
   }catch(e){
-    if (e.name!=="NotFoundError") alert("BLE connect failed: "+e.message);
+    setBlePill(false);
+    if (e.name === "NotFoundError"){
+      // chooser closed with nothing picked — usually nothing was found
+      alert("No device selected / none found.\n\nChecklist:\n"
+        + "• Arduino powered & Serial shows \"advertising as 'Norisugoshi'\"\n"
+        + "• Phone Bluetooth is ON\n"
+        + "• Android only: turn ON Location, and allow this browser's \"Nearby devices\"/Location permission (Android needs it to scan BLE)");
+    } else {
+      alert("BLE connect failed: " + e.name + " — " + e.message);
+    }
   }
 }
 function setBlePill(on,name){
