@@ -204,6 +204,7 @@
         <span><i class="leg-beyond"></i>行かない not served</span>
       </div>
       <div class="dest-list" id="destList"></div>
+      <p class="hint" id="destNote" style="text-align:left; display:none; margin-top:.55rem; line-height:1.5"></p>
       <div class="field" style="margin-top:.75rem; max-width:60%">
         <label class="fld">Alert before</label>
         <select id="selAlert">
@@ -530,6 +531,22 @@ function buildDestList(){
         <span class="ddot"></span>${o.ja} <span style="color:#9ca3af;font-size:11px">${o.en}</span>${tagHtml}
       </div>`;
   }).join("");
+
+  // through-service note: the train continues onto another operator's line that
+  // ODPT doesn't cover with this key (e.g. Asakusa → Keisei → Narita Airport), so
+  // the list can only go up to this line's last station.
+  const termId = (S.train["odpt:destinationStation"]||[])[0];
+  const note = $("destNote");
+  if (termId && !r.occ[termId]){
+    const edge = r.order[terminusNode];
+    const dest = tail(termId).replace(/([a-z])([A-Z])/g, "$1 $2"); // NaritaAirportTerminal1 -> Narita Airport Terminal1
+    note.innerHTML =
+      `ℹ️ この列車は <b>${dest}</b> まで直通運転しますが、ODPT のデータは <b>${edge.ja}</b> まで。降車駅は ${edge.ja} までしか選べません。` +
+      `<br><span style="color:#9ca3af">Through-service to ${dest}, but ODPT data for this line ends at ${edge.en} — pick a stop up to there.</span>`;
+    note.style.display = "block";
+  } else {
+    note.style.display = "none";
+  }
 
   // keep a still-valid selection highlighted after a refresh; drop it if passed
   if (S.destId){
