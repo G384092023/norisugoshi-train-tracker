@@ -287,10 +287,23 @@ function stationTitle(line, id){
   if (r && r.titleById[id]) return r.titleById[id];
   return tail(id);
 }
-async function getJSON(path){
-  const res = await fetch(API + path);
-  if (!res.ok) throw new Error("HTTP " + res.status);
-  return res.json();
+// Fetch with auto-retry. Free hosts (e.g. Render) occasionally fail to route a
+// request to the instance and return a transient 404/5xx, or the instance is
+// waking from sleep. The next request almost always succeeds, so we retry a few
+// times with a short backoff before surfacing an error to the user.
+async function getJSON(path, tries = 5){
+  let lastErr;
+  for (let i = 0; i < tries; i++){
+    try {
+      const res = await fetch(API + path, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    } catch(e){
+      lastErr = e;
+      if (i < tries - 1) await new Promise(r => setTimeout(r, 600 * (i + 1))); // 0.6,1.2,1.8,2.4s
+    }
+  }
+  throw lastErr;
 }
 
 // ============================================================ INIT
