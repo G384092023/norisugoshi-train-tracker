@@ -118,12 +118,55 @@ margin.
 
 ---
 
-## Updating after a change
+## Making a change and redeploying — full steps
+
+Everything lives in **`index.html`** (HTML, CSS in the `<style>` block, and JS in the
+`<script>` block). `server.js` is the proxy. Do all edits in the **`app`** folder.
+
+### 1. Edit
+Open `index.html` in any editor (VS Code, Notepad++…). CSS is near the top inside
+`<style> … </style>`.
+
+### 2. Test locally first (don't push untested)
+1. Double-click **`start.bat`** (or run `node server.js` in the `app` folder).
+2. Open **http://localhost:3000** in Chrome/Edge.
+3. **Hard refresh** to bypass the service-worker cache: **Ctrl + Shift + R**.
+4. Check your change looks right. (Edit → save → hard refresh again to iterate.)
+
+### 3. Commit & push (this auto-redeploys Render)
+Open PowerShell **in the `app` folder** and run:
 ```bash
-git add .
-git commit -m "describe the change"
+git add -A
+git commit -m "describe what you changed"
 git push
 ```
-Render redeploys in a minute or two. (If a cached old version sticks on your phone,
-the service worker is network-first so a refresh gets the latest; a hard reload or
-reinstall clears it for sure.)
+> First time in a new terminal, if git can't find the folder, run:
+> `cd "C:\Users\X1 Extreme\Downloads\TakuDai\課題\7th Sem\kenkyu\norisugoshiboushi\app"`
+>
+> No command line? In **GitHub Desktop**: it shows your changes → write a summary →
+> **Commit to main** → **Push origin**. Same result.
+
+### 4. Wait for Render (~1–2 min)
+The push triggers a deploy automatically. Watch it in the Render dashboard
+(your service → it goes **Building → Live**). Nothing else to click.
+
+### 5. Verify live
+Open the Render URL and **hard refresh** (Ctrl + Shift + R). The service worker is
+network-first, so a refresh pulls the latest; on a phone, pull-to-refresh or reopen the
+installed app. If it still looks old, close and reopen the tab/app once.
+
+### If a push is rejected ("updates were rejected")
+Someone/something changed the GitHub copy. Pull first, then push:
+```bash
+git pull
+git push
+```
+
+### Undo a bad change (before committing)
+```bash
+git checkout -- index.html      # discard edits to that file
+```
+After committing, to roll back the last commit but keep the files:
+```bash
+git reset --soft HEAD~1
+```
