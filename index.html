@@ -116,14 +116,12 @@
   .stops .dot{ width:11px; height:11px; border-radius:50%; background:#d1d5db; border:2px solid #fff; box-shadow:0 0 0 1px #d1d5db; flex-shrink:0; z-index:1; }
   .stops li::before{ content:''; position:absolute; left:5px; top:50%; bottom:-50%; width:2px; background:#e5e7eb; }
   .stops li:last-child::before{ display:none; }
-  .stops li.passed{ color:#cbd5e1; }
-  .stops li.passed .dot{ background:#e5e7eb; box-shadow:0 0 0 1px #e5e7eb; }
-  /* colours match the Step-3 destination picker: blue=here, green=your stop */
-  .stops li.cur{ color:#1d4ed8; font-weight:700; } .stops li.cur .dot{ background:#2563eb; box-shadow:0 0 0 1px #2563eb; }
-  .stops li.tgt{ color:#15803d; font-weight:700; } .stops li.tgt .dot{ background:#16a34a; box-shadow:0 0 0 1px #16a34a; }
-  .stops li.zone{ color:#b45309; font-weight:600; } .stops li.zone .dot{ background:#f59e0b; box-shadow:0 0 0 1px #f59e0b; }
+  /* dot + text colours are set inline as a blue→red gradient (see renderStops) */
+  .stops li.passed{ opacity:.6; }
+  .stops li.cur{ font-weight:700; }
+  .stops li.tgt{ font-weight:700; }
   .tag{ font-size:11px; font-weight:600; padding:1px 7px; border-radius:999px; margin-left:6px; }
-  .tag.here{ background:#dbeafe; color:#1d4ed8 } .tag.off{ background:#dcfce7; color:#15803d }
+  .tag.here{ background:#dbeafe; color:#1d4ed8 } .tag.off{ background:#fee2e2; color:#b91c1c }
   /* legend shared style (also used in Step 3) */
   .stops-legend{ display:flex; gap:13px; flex-wrap:wrap; font-size:11px; color:#6b7280; margin:.1rem 0 .2rem; }
   .stops-legend span{ display:inline-flex; align-items:center; gap:5px; }
@@ -262,8 +260,8 @@
       <div class="step-title" style="margin-bottom:.4rem">停車駅 — Stops</div>
       <div class="stops-legend">
         <span><i style="background:#2563eb"></i>現在地 here</span>
-        <span><i style="background:#16a34a"></i>降車 get off</span>
-        <span><i style="background:#f59e0b"></i>まもなく soon</span>
+        <span><i style="width:32px;border-radius:3px;background:linear-gradient(90deg,#2563eb,#dc2626)"></i>近づくほど赤 closer</span>
+        <span><i style="background:#dc2626"></i>降車 get off</span>
         <span><i style="background:#e5e7eb"></i>通過 passed</span>
       </div>
       <ul class="stops" id="stopsList"></ul>
@@ -772,6 +770,11 @@ function render(t){
   renderStops(r, cur.node, destNode, dir);
 }
 
+// blue (current, f=0) → red (destination, f=1)
+function heatColor(f){
+  const A=[37,99,235], B=[220,38,38], L=(a,b)=>Math.round(a+(b-a)*f);
+  return `rgb(${L(A[0],B[0])},${L(A[1],B[1])},${L(A[2],B[2])})`;
+}
 function renderStops(r, node, destNode, dir){
   const list = $("stopsList");
   if (node<0 || destNode<0){ list.innerHTML=""; return; }
@@ -780,16 +783,19 @@ function renderStops(r, node, destNode, dir){
   const seq = [];
   for (let i=start;i<=end;i++) seq.push(i);
   if (dir<0) seq.reverse();
+  const D = Math.abs(destNode - node) || 1;   // total stops on this leg
   let html = "";
   seq.forEach(i=>{
     const o = r.order[i];
+    const d = (i - node) * dir;                // signed steps from current (>0 ahead)
     const isCur = i===node, isTgt = i===destNode;
-    const passed  = dir>0 ? i<node : i>node;
-    const between = dir>0 ? (i>node && i<destNode) : (i<node && i>destNode);
-    let cls=""; if(passed)cls="passed"; if(isCur)cls="cur"; if(isTgt)cls="tgt";
-    if(between && Math.abs(destNode-i)<=S.alertN) cls+=" zone";
-    const tag = isCur ? '<span class="tag here">現在地</span>' : isTgt ? '<span class="tag off">降車</span>' : "";
-    html += `<li class="${cls}"><span class="dot"></span>${o.ja} <span style="color:#9ca3af;font-size:11px">${o.en}</span>${tag}</li>`;
+    const color = (d < 0 || d > D) ? "#cbd5e1" : heatColor(d / D); // grey if passed/beyond
+    let cls = ""; if (d < 0 || d > D) cls = "passed"; if (isCur) cls = "cur"; if (isTgt) cls = "tgt";
+    const tag = isCur ? '<span class="tag here">現在地</span>'
+              : isTgt ? '<span class="tag off">降車</span>' : "";
+    html += `<li class="${cls}" style="color:${color}">`
+          + `<span class="dot" style="background:${color};box-shadow:0 0 0 1px ${color}"></span>`
+          + `${o.ja} <span style="color:#9ca3af;font-size:11px">${o.en}</span>${tag}</li>`;
   });
   list.innerHTML = html;
 }
