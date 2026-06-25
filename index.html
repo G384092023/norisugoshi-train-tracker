@@ -118,11 +118,16 @@
   .stops li:last-child::before{ display:none; }
   .stops li.passed{ color:#cbd5e1; }
   .stops li.passed .dot{ background:#e5e7eb; box-shadow:0 0 0 1px #e5e7eb; }
-  .stops li.cur{ color:#15803d; font-weight:700; } .stops li.cur .dot{ background:#16a34a; box-shadow:0 0 0 1px #16a34a; }
-  .stops li.tgt{ color:#b45309; font-weight:700; } .stops li.tgt .dot{ background:#d97706; box-shadow:0 0 0 1px #d97706; }
-  .stops li.zone{ color:#dc2626; font-weight:600; }
+  /* colours match the Step-3 destination picker: blue=here, green=your stop */
+  .stops li.cur{ color:#1d4ed8; font-weight:700; } .stops li.cur .dot{ background:#2563eb; box-shadow:0 0 0 1px #2563eb; }
+  .stops li.tgt{ color:#15803d; font-weight:700; } .stops li.tgt .dot{ background:#16a34a; box-shadow:0 0 0 1px #16a34a; }
+  .stops li.zone{ color:#b45309; font-weight:600; } .stops li.zone .dot{ background:#f59e0b; box-shadow:0 0 0 1px #f59e0b; }
   .tag{ font-size:11px; font-weight:600; padding:1px 7px; border-radius:999px; margin-left:6px; }
-  .tag.here{ background:#dcfce7; color:#15803d } .tag.off{ background:#ffedd5; color:#b45309 }
+  .tag.here{ background:#dbeafe; color:#1d4ed8 } .tag.off{ background:#dcfce7; color:#15803d }
+  /* legend shared style (also used in Step 3) */
+  .stops-legend{ display:flex; gap:13px; flex-wrap:wrap; font-size:11px; color:#6b7280; margin:.1rem 0 .2rem; }
+  .stops-legend span{ display:inline-flex; align-items:center; gap:5px; }
+  .stops-legend i{ width:10px; height:10px; border-radius:50%; display:inline-block; }
 
   .banner { border-radius:12px; padding:12px 14px; font-size:14px; font-weight:600; margin-bottom:.85rem;
             display:none; align-items:center; gap:10px; }
@@ -253,7 +258,13 @@
     </div>
 
     <div class="card">
-      <div class="step-title" style="margin-bottom:.3rem">停車駅 — Stops</div>
+      <div class="step-title" style="margin-bottom:.4rem">停車駅 — Stops</div>
+      <div class="stops-legend">
+        <span><i style="background:#2563eb"></i>現在地 here</span>
+        <span><i style="background:#16a34a"></i>降車 get off</span>
+        <span><i style="background:#f59e0b"></i>まもなく soon</span>
+        <span><i style="background:#e5e7eb"></i>通過 passed</span>
+      </div>
       <ul class="stops" id="stopsList"></ul>
     </div>
 
