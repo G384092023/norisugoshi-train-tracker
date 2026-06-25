@@ -72,6 +72,25 @@
   .train-meta { font-size: 13px; line-height: 1.45; }
   .train-meta .pos { font-weight: 600; }
   .train-meta .sub { color: #6b7280; font-size: 12px; }
+  .icon-btn { width: auto; padding: 5px 9px; font-size: 12px; border-radius: 8px; }
+
+  /* Direction-aware destination picker */
+  .dest-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: #6b7280; margin-bottom: .55rem; }
+  .dest-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .dest-legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .leg-here   { background: #2563eb; } .leg-ahead { background: #16a34a; }
+  .leg-passed { background: #dc2626; } .leg-beyond { background: #d1d5db; }
+  .dest-list { display: flex; flex-direction: column; gap: 3px; max-height: 300px; overflow-y: auto;
+               border: 1px solid #e5e7eb; border-radius: 10px; padding: 6px; }
+  .dest-row { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; font-size: 14px; }
+  .dest-row .ddot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+  .dest-row .rtag { margin-left: auto; font-size: 11px; font-weight: 600; }
+  .dest-row.ahead  { cursor: pointer; color: #15803d; } .dest-row.ahead .ddot { background: #16a34a; }
+  .dest-row.ahead:hover { background: #f0fdf4; }
+  .dest-row.ahead.sel   { background: #dcfce7; box-shadow: 0 0 0 2px #16a34a inset; font-weight: 700; }
+  .dest-row.here   { color: #1d4ed8; font-weight: 700; } .dest-row.here .ddot { background: #2563eb; }
+  .dest-row.passed { color: #b91c1c; opacity: .75; }     .dest-row.passed .ddot { background: #dc2626; }
+  .dest-row.beyond { color: #9ca3af; }                   .dest-row.beyond .ddot { background: #d1d5db; }
 
   .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
   .badge.green{background:#dcfce7;color:#15803d} .badge.amber{background:#fef9c3;color:#92400e}
@@ -158,6 +177,7 @@
         <div class="step-num" id="s2">2</div>
         <div class="step-title">乗っている列車を選ぶ — Which train are you on?</div>
         <div class="step-sub" id="s2sub"></div>
+        <button class="btn ghost icon-btn" id="btnTrainRefresh" style="margin-left:8px" onclick="refreshTrains()" title="Refresh live trains">🔄</button>
       </div>
       <p class="hint" style="text-align:left;margin:0 0 .6rem">
         Check the train number on the in-car display, or match the destination / current station.
@@ -171,19 +191,21 @@
         <div class="step-num" id="s3">3</div>
         <div class="step-title">降りる駅 — Get off at</div>
       </div>
-      <div class="row2">
-        <div>
-          <label class="fld">Destination station</label>
-          <select id="selDest"><option value="">— select —</option></select>
-        </div>
-        <div style="max-width:42%">
-          <label class="fld">Alert before</label>
-          <select id="selAlert">
-            <option value="1">1 stop</option>
-            <option value="2" selected>2 stops</option>
-            <option value="3">3 stops</option>
-          </select>
-        </div>
+      <label class="fld">Pick a station ahead of your train (this train is going this way ↓)</label>
+      <div class="dest-legend">
+        <span><i class="leg-here"></i>現在地 here</span>
+        <span><i class="leg-ahead"></i>降車可 this way</span>
+        <span><i class="leg-passed"></i>逆方向 passed</span>
+        <span><i class="leg-beyond"></i>行かない not served</span>
+      </div>
+      <div class="dest-list" id="destList"></div>
+      <div class="field" style="margin-top:.75rem; max-width:60%">
+        <label class="fld">Alert before</label>
+        <select id="selAlert">
+          <option value="1">1 stop</option>
+          <option value="2" selected>2 stops</option>
+          <option value="3">3 stops</option>
+        </select>
       </div>
       <div class="ble-line">
         <span>📳 Haptic device (BLE):</span>
@@ -366,17 +388,12 @@ async function init(){
 $("selLine").addEventListener("change", onLine);
 async function onLine(){
   S.line = $("selLine").value;
-  S.train = null; S.trainNo = "";
+  S.train = null; S.trainNo = ""; S.destId = "";
   resetFrom(2);
   if (!S.line) return;
   $("s1").classList.add("done");
 
-  // populate destination from station order (unique ids — spiral lines repeat a station)
-  const r = S.railways[S.line];
-  const seen = new Set();
-  $("selDest").innerHTML = '<option value="">— select —</option>' +
-    r.order.filter(o => !seen.has(o.id) && seen.add(o.id))
-           .map(o => `<option value="${o.id}">${o.ja} (${o.en})</option>`).join("");
+  // (destination list is built per-train in pickTrain — it depends on the train's direction)
 
   // fetch live trains on this line for the picker
   $("card2").style.display = "block";
@@ -417,19 +434,109 @@ function renderTrainPicker(){
   }).join("");
 }
 
+// Re-fetch the live trains on the current line (re-selecting the same line in a
+// dropdown doesn't fire 'change', so this button lets the user refresh on demand).
+async function refreshTrains(){
+  if (!S.line) return;
+  const b = $("btnTrainRefresh"); b.disabled = true; b.textContent = "⏳";
+  try {
+    S.trains = await getJSON("/api/trains?railway=" + encodeURIComponent(S.line));
+    renderTrainPicker();
+    if (S.trainNo){
+      const still = S.trains.find(t => (t["odpt:trainNumber"]||tail(t["owl:sameAs"]))===S.trainNo);
+      if (still){
+        S.train = still;
+        document.querySelectorAll(".train-opt").forEach(el=>el.classList.toggle("sel", el.dataset.no===S.trainNo));
+        buildDestList();   // refresh positions/colours; keeps a still-valid destination
+      } else {
+        S.trainNo=""; S.train=null; S.destId="";
+        $("card3").style.display="none"; $("s2").classList.remove("done"); $("destList").innerHTML="";
+        showErr("Your selected train is no longer running — pick another.");
+        checkReady();
+      }
+    }
+    showErr("");
+  } catch(e){ showErr("Refresh failed (" + e.message + ")"); }
+  b.disabled=false; b.textContent="🔄";
+}
+
 function pickTrain(no){
   S.trainNo = no;
   S.train = S.trains.find(t => (t["odpt:trainNumber"]||tail(t["owl:sameAs"]))===no);
+  S.destId = "";   // direction may differ from the previous train — re-choose
   document.querySelectorAll(".train-opt").forEach(el=>el.classList.toggle("sel", el.dataset.no===no));
   $("s2").classList.add("done");
   $("card3").style.display = "block";
+  buildDestList();
   checkReady();
 }
 
-// ============================================================ STEP 3
-$("selDest").addEventListener("change", checkReady);
+// ============================================================ STEP 3 — direction-aware destination
+// Work out where the selected train is and which way it's going.
+function trainPath(r, t){
+  const fromId = t["odpt:fromStation"], toId = t["odpt:toStation"], occ = r.occ[fromId] || [];
+  let node = -1, dir = 0;
+  if (toId){
+    for (const i of occ){
+      if (r.order[i+1] && r.order[i+1].id===toId){ node=i; dir=+1; break; }
+      if (r.order[i-1] && r.order[i-1].id===toId){ node=i; dir=-1; break; }
+    }
+  }
+  const term = (t["odpt:destinationStation"]||[])[0];
+  if (node < 0){ // stopped train: infer direction from where it's bound
+    for (const i of occ){
+      if (term && walk(r.order, i, +1, term)!=null){ node=i; dir=+1; break; }
+      if (term && walk(r.order, i, -1, term)!=null){ node=i; dir=-1; break; }
+    }
+    if (node < 0){ node = occ.length ? occ[0] : -1; dir = +1; }
+  }
+  let terminusNode = -1;
+  if (node>=0 && term){ const d = walk(r.order, node, dir, term); if (d!=null) terminusNode = node + dir*d; }
+  if (terminusNode < 0) terminusNode = dir>0 ? r.order.length-1 : 0; // fall back to end of line
+  return { node, dir, terminusNode };
+}
+
+function buildDestList(){
+  const r = S.railways[S.line];
+  const { node, dir, terminusNode } = trainPath(r, S.train);
+  const termDelta = (terminusNode - node) * dir;     // stops from current to the train's last stop
+
+  // walk every station in the train's travel order
+  const seq = [];
+  for (let i=0;i<r.order.length;i++) seq.push(i);
+  if (dir < 0) seq.reverse();
+
+  $("destList").innerHTML = seq.map(i => {
+    const o = r.order[i];
+    const delta = (i - node) * dir;                  // <0 behind, 0 here, >0 ahead
+    let cls, tag = "", click = "";
+    if (delta === 0){ cls = "here";   tag = "現在地"; }
+    else if (delta < 0){ cls = "passed"; tag = "逆方向"; }
+    else if (delta <= termDelta){ cls = "ahead"; click = ` onclick="selectDest('${o.id}', this)"`; }
+    else { cls = "beyond"; tag = "この列車は行かない"; }
+    const tagHtml = tag ? `<span class="rtag">${tag}</span>` : "";
+    return `<div class="dest-row ${cls}" data-id="${o.id}"${click}>
+        <span class="ddot"></span>${o.ja} <span style="color:#9ca3af;font-size:11px">${o.en}</span>${tagHtml}
+      </div>`;
+  }).join("");
+
+  // keep a still-valid selection highlighted after a refresh; drop it if passed
+  if (S.destId){
+    const sel = $("destList").querySelector(`.dest-row.ahead[data-id="${S.destId}"]`);
+    if (sel) sel.classList.add("sel"); else S.destId = "";
+  }
+  const here = $("destList").querySelector(".dest-row.here");
+  if (here) here.scrollIntoView({ block: "center" });
+}
+
+function selectDest(id, el){
+  S.destId = id;
+  $("destList").querySelectorAll(".dest-row.ahead").forEach(r => r.classList.remove("sel"));
+  el.classList.add("sel");
+  checkReady();
+}
+
 function checkReady(){
-  S.destId = $("selDest").value;
   const ok = S.line && S.trainNo && S.destId;
   if (ok) $("s3").classList.add("done"); else $("s3").classList.remove("done");
   $("btnStart").disabled = !ok;
@@ -437,7 +544,7 @@ function checkReady(){
 
 function resetFrom(step){
   if (step<=2){ $("card2").style.display="none"; $("s2").classList.remove("done"); $("trainList").innerHTML=""; }
-  if (step<=3){ $("card3").style.display="none"; $("s3").classList.remove("done"); $("selDest").innerHTML='<option value="">— select —</option>'; }
+  if (step<=3){ $("card3").style.display="none"; $("s3").classList.remove("done"); $("destList").innerHTML=""; S.destId=""; }
   $("btnStart").disabled = true;
 }
 
