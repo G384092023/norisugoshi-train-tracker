@@ -85,12 +85,11 @@
   .dest-row { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; font-size: 14px; }
   .dest-row .ddot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
   .dest-row .rtag { margin-left: auto; font-size: 11px; font-weight: 600; }
-  .dest-row.ahead  { cursor: pointer; color: #15803d; } .dest-row.ahead .ddot { background: #16a34a; }
-  .dest-row.ahead:hover { background: #f0fdf4; }
-  .dest-row.ahead.sel   { background: #dcfce7; box-shadow: 0 0 0 2px #16a34a inset; font-weight: 700; }
-  .dest-row.here   { color: #1d4ed8; font-weight: 700; } .dest-row.here .ddot { background: #2563eb; }
-  .dest-row.passed { color: #b91c1c; opacity: .75; }     .dest-row.passed .ddot { background: #dc2626; }
-  .dest-row.beyond { color: #9ca3af; }                   .dest-row.beyond .ddot { background: #d1d5db; }
+  /* dot + text colours set inline as a blue→red gradient (see buildDestList) */
+  .dest-row.ahead  { cursor: pointer; }
+  .dest-row.ahead:hover { background: #f3f4f6; }
+  .dest-row.ahead.sel   { background: #eff6ff; box-shadow: 0 0 0 2px #2563eb inset; font-weight: 700; }
+  .dest-row.here   { font-weight: 700; }
 
   .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
   .badge.green{background:#dcfce7;color:#15803d} .badge.amber{background:#fef9c3;color:#92400e}
@@ -197,9 +196,7 @@
       <label class="fld">Pick a station ahead of your train (this train is going this way ↓)</label>
       <div class="dest-legend">
         <span><i class="leg-here"></i>現在地 here</span>
-        <span><i class="leg-ahead"></i>降車可 this way</span>
-        <span><i class="leg-passed"></i>逆方向 passed</span>
-        <span><i class="leg-beyond"></i>行かない not served</span>
+        <span><i style="width:32px;border-radius:3px;background:linear-gradient(90deg,#2563eb,#dc2626)"></i>降車駅を選ぶ tap a stop ahead</span>
       </div>
       <div class="dest-list" id="destList"></div>
       <p class="hint" id="destNote" style="text-align:left; display:none; margin-top:.55rem; line-height:1.5"></p>
@@ -540,22 +537,27 @@ function buildDestList(){
   const { node, dir, terminusNode } = trainPath(r, S.train);
   const termDelta = (terminusNode - node) * dir;     // stops from current to the train's last stop
 
-  // walk every station in the train's travel order
+  // Only show the current station + the stations ahead (up to this train's last stop).
+  // Passed / not-served stations are hidden, so everything below "現在地" is tappable,
+  // and the dots can use the same blue→red gradient as the tracking screen.
   const seq = [];
-  for (let i=0;i<r.order.length;i++) seq.push(i);
+  for (let i=0;i<r.order.length;i++){
+    const delta = (i - node) * dir;
+    if (delta >= 0 && delta <= termDelta) seq.push(i);   // current + ahead only
+  }
   if (dir < 0) seq.reverse();
 
   $("destList").innerHTML = seq.map(i => {
     const o = r.order[i];
-    const delta = (i - node) * dir;                  // <0 behind, 0 here, >0 ahead
-    let cls, tag = "", click = "";
-    if (delta === 0){ cls = "here";   tag = "現在地"; }
-    else if (delta < 0){ cls = "passed"; tag = "逆方向"; }
-    else if (delta <= termDelta){ cls = "ahead"; click = ` onclick="selectDest('${o.id}', this)"`; }
-    else { cls = "beyond"; tag = "この列車は行かない"; }
-    const tagHtml = tag ? `<span class="rtag">${tag}</span>` : "";
-    return `<div class="dest-row ${cls}" data-id="${o.id}"${click}>
-        <span class="ddot"></span>${o.ja} <span style="color:#9ca3af;font-size:11px">${o.en}</span>${tagHtml}
+    const delta = (i - node) * dir;                  // 0 = here, >0 = ahead
+    const isHere = delta === 0;
+    const color = isHere ? "#2563eb" : heatColor(termDelta ? delta/termDelta : 1); // blue → red
+    const cls = isHere ? "here" : "ahead";
+    const click = isHere ? "" : ` onclick="selectDest('${o.id}', this)"`;
+    const tag = isHere ? '<span class="rtag" style="background:#dbeafe;color:#1d4ed8">現在地</span>' : "";
+    const dotStyle = `background:${color};box-shadow:0 0 0 1px ${color}`;
+    return `<div class="dest-row ${cls}" data-id="${o.id}"${click} style="color:${color}">
+        <span class="ddot" style="${dotStyle}"></span>${o.ja} <span style="color:#9ca3af;font-size:11px">${o.en}</span>${tag}
       </div>`;
   }).join("");
 
