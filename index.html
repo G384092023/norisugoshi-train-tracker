@@ -197,7 +197,7 @@
       <label class="fld">Pick a station ahead of your train (this train is going this way ↓)</label>
       <div class="dest-legend">
         <span><i class="leg-here"></i>現在地 here</span>
-        <span><i class="leg-ahead"></i>降車可 this way</span>
+        <span><i style="width:30px;border-radius:3px;background:linear-gradient(90deg,#2563eb,#dc2626)"></i>降車可 near→far</span>
         <span><i class="leg-passed"></i>逆方向 passed</span>
         <span><i class="leg-beyond"></i>行かない not served</span>
       </div>
@@ -548,14 +548,14 @@ function buildDestList(){
   $("destList").innerHTML = seq.map(i => {
     const o = r.order[i];
     const delta = (i - node) * dir;                  // <0 behind, 0 here, >0 ahead
-    let cls, tag = "", click = "";
-    if (delta === 0){ cls = "here";   tag = "現在地"; }
-    else if (delta < 0){ cls = "passed"; tag = "逆方向"; }
-    else if (delta <= termDelta){ cls = "ahead"; click = ` onclick="selectDest('${o.id}', this)"`; }
-    else { cls = "beyond"; tag = "この列車は行かない"; }
-    const tagHtml = tag ? `<span class="rtag">${tag}</span>` : "";
-    return `<div class="dest-row ${cls}" data-id="${o.id}"${click}>
-        <span class="ddot"></span>${o.ja} <span style="color:#9ca3af;font-size:11px">${o.en}</span>${tagHtml}
+    let cls, tag = "", click = "", color = "#cbd5e1";
+    if (delta === 0){ cls = "here"; tag = '<span class="rtag" style="background:#dbeafe;color:#1d4ed8">現在地</span>'; color = "#2563eb"; }
+    else if (delta < 0){ cls = "passed"; tag = '<span class="rtag" style="background:#fee2e2;color:#b91c1c">逆方向</span>'; color = "#cbd5e1"; }
+    else if (delta <= termDelta){ cls = "ahead"; click = ` onclick="selectDest('${o.id}', this)"`; color = heatColor(termDelta ? delta/termDelta : 1); }
+    else { cls = "beyond"; tag = '<span class="rtag">行かない</span>'; color = "#cbd5e1"; }
+    const dotStyle = `background:${color};box-shadow:0 0 0 1px ${color}`;
+    return `<div class="dest-row ${cls}" data-id="${o.id}"${click} style="color:${color}">
+        <span class="ddot" style="${dotStyle}"></span>${o.ja} <span style="color:#9ca3af;font-size:11px">${o.en}</span>${tag}
       </div>`;
   }).join("");
 
