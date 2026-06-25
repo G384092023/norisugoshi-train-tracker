@@ -88,6 +88,36 @@ Wait ~1–2 min for the first build. You'll get a URL like
 
 ---
 
+## Keeping it awake (avoid the cold-start "not found")
+
+A free Render service **sleeps after ~15 min idle** and takes ~30–60 s to wake. The app
+also **auto-retries** failed fetches, so Render's occasional transient 404s heal
+themselves — but to skip the cold-start wait entirely, ping it on a schedule.
+
+There's a tiny endpoint for exactly this: **`/healthz`** (returns `ok`, no ODPT call).
+
+**Set up a free pinger (cron-job.org):**
+1. Sign up at https://cron-job.org → log in → **Create cronjob**.
+2. Settings:
+   | Field | Value |
+   |-------|-------|
+   | URL | `https://norisugoshi-train-tracker.onrender.com/healthz` |
+   | Schedule | Every **10 minutes** |
+   | Time zone | Asia/Tokyo |
+   | Hours | 7 – 23 (your active hours) |
+   | Method | GET |
+3. Enable → Save.
+
+**Free-tier math:** Render gives **750 instance-hours/month**, shared across your free
+services. Pinging ~16 h/day ≈ 496 h/month — well inside free. (Even 24/7 ≈ 744 h fits,
+but only if this is your *only* free service.) Ping only the hours you use it for safety
+margin.
+
+> Occasional "failed" entries in cron-job.org are just Render's transient 404s — the
+> request still wakes the instance, so ignore them (or turn off that job's notifications).
+
+---
+
 ## Updating after a change
 ```bash
 git add .
