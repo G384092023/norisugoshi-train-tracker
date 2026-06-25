@@ -150,6 +150,14 @@ const server = http.createServer(async (req, res) => {
   // try/catch: if ODPT or anything else throws, we send one clean 502 instead
   // of crashing the server.
   try {
+    // ---- ROUTE: health check ----------------------------------------------
+    // A tiny endpoint for uptime pingers (e.g. cron-job.org) to keep a free host
+    // awake. Returns "ok" instantly with no ODPT call — minimal bandwidth/quota.
+    if (url.pathname === "/healthz") {
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+      return res.end("ok");
+    }
+
     // ---- ROUTE: live trains -----------------------------------------------
     if (url.pathname === "/api/trains") {
       // Optional ?railway=... filter. If present, we ask ODPT for just that line;
