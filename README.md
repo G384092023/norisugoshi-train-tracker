@@ -160,10 +160,9 @@ arrive, switch trains, or stop), it writes the "off" byte:
 2. Click **Connect** → choose **"Norisugoshi"** in the browser's device chooser.
 3. Click **Test** — the LED should blip. You're linked.
 
-> ⚠️ **Web Bluetooth needs a secure context.** It works in **Chrome/Edge on desktop at
-> `http://localhost:3000`** (localhost counts as secure). On a phone over plain
-> `http://<PC-IP>:3000` it is **blocked** — you'd need HTTPS. So do the BLE part on a
-> desktop Chrome/Edge for now.
+> ⚠️ **Web Bluetooth needs a secure context (HTTPS or localhost).** Use the deployed
+> `https://…onrender.com` URL on a phone, or `http://localhost:3000` on desktop. A phone
+> on a plain `http://<PC-IP>:3000` address is **blocked**. See BLE troubleshooting below.
 
 ### UUIDs / protocol (must match on both sides)
 ```
@@ -177,6 +176,29 @@ the `.ino`. When the real haptic hardware is ready, just drive the actuator on `
 
 The on-screen **response timer** (start = alert fired, stop = "I'm awake") logs reaction
 times per session — useful for comparing stimulation methods in the experiment.
+
+### BLE troubleshooting (real fixes we hit)
+The **Connect** button shows the reason when it can't connect — use this table.
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Alert "this browser can't use Bluetooth" on **iPhone** | iOS Safari/Chrome have **no Web Bluetooth** (Apple policy — all iOS browsers use WebKit) | Open the site in the **Bluefy** browser app (App Store). |
+| **Brave** (Android/desktop): Connect does nothing or "can't use Bluetooth" | Brave **disables Web Bluetooth by default** | Enable `brave://flags/#brave-web-bluetooth-api` → Relaunch. Or use Chrome/Edge. |
+| **Android**: chooser empty / "no device found" | Android requires **Location** to scan BLE (a beacon-privacy rule — your location isn't used by the app) | Turn **Location services ON**, and allow the browser's Location / "Nearby devices" permission. Also confirm phone Bluetooth is ON. |
+| Connect does nothing on a phone over `http://<PC-IP>:3000` | Web Bluetooth needs a **secure context (HTTPS)** | Use the deployed `https://…onrender.com` URL (localhost is also fine on desktop). |
+| Chooser is empty even when all above is OK | Arduino not advertising | Check Serial Monitor shows `advertising as 'Norisugoshi'`; press RESET to restart advertising. |
+
+Platform summary:
+
+| Platform | Browser for BLE |
+|----------|-----------------|
+| Android | Chrome / Edge / **Brave (flag on)** + Location ON |
+| Desktop | Chrome / Edge / Brave (flag on) |
+| iPhone / iPad | **Bluefy** only (Safari/Chrome can't) |
+
+> The vibration/notification alerts also need HTTPS on a phone, and the phone's own
+> vibration is **Android-only** (iOS ignores the web Vibration API) — the external
+> haptic device works on any BLE-capable setup regardless.
 
 ---
 
