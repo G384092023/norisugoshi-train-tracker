@@ -303,6 +303,7 @@ const S = {
   tracking: false,
   intervalId: null,
   alertFired: false,
+  alertAcked: false,   // user pressed "I'm awake" — silence the device until re-armed
   trainsLive: [],      // latest poll result (for the switch-train picker)
   missCount: 0,        // consecutive polls where our train wasn't in the feed
   lastSeen: null,      // last known data for our train
@@ -607,7 +608,7 @@ function resetFrom(step){
 // ============================================================ TRACKING
 async function startTracking(){
   S.alertN = parseInt($("selAlert").value,10);
-  S.alertFired = false;
+  S.alertFired = false; S.alertAcked = false;
   S.missCount = 0; S.lastSeen = null;
   S.altOpen = false; updateSwitchBtn();
   S.tracking = true;
@@ -886,7 +887,7 @@ function switchTrain(no){
   const ev = evalTrain(r, t, S.destId);
   S.trainNo=no; S.train=t; S.lastSeen=t; S.missCount=0;
   S.travelDir = ev ? ev.dir : (currentNode(r,t).dir || S.travelDir || 1);
-  S.alertFired=false; S._startNode=null;
+  S.alertFired=false; S.alertAcked=false; S._startNode=null;
   S.altOpen=false; updateSwitchBtn();
   clearWarn(); hideAlts();
   $("pFrom").textContent = stationTitle(S.line, t["odpt:fromStation"]);
@@ -898,6 +899,7 @@ function warn(msg){ $("warnText").textContent=msg; $("warnBanner").classList.add
 function clearWarn(){ $("warnBanner").classList.remove("show"); }
 
 function fireAlert(stops){
+  if (S.alertAcked) return;     // user pressed "I'm awake" — stay silent this approach
   clearWarn();
   $("alertText").textContent = `あと ${stops} 駅で ${stationTitle(S.line,S.destId)}！降りる準備を — ${stops} stop${stops>1?"s":""} to your stop!`;
   $("alertBanner").classList.add("show");
@@ -910,6 +912,7 @@ function clearAlert(){
   $("alertBanner").classList.remove("show");
   if (S.alertFired) bleSend(BLE_CLEAR);   // turn the LED/haptic off on the alert→clear transition
   S.alertFired=false;
+  S.alertAcked=false;                     // out of the alert zone → re-arm for next time
 }
 
 function arrived(){
@@ -992,7 +995,12 @@ function startTimer(){
   S.timerId = setInterval(()=>{ $("timerVal").textContent = ((Date.now()-S.t0)/1000).toFixed(1)+"s"; },100);
 }
 function stopTimer(){
-  if (!S.t0) return;
+  // "I'm awake" — acknowledge the alert: silence the device and dismiss the banner.
+  bleSend(BLE_CLEAR);                       // turn the LED/haptic OFF
+  S.alertAcked = true;                      // don't re-fire this approach
+  $("alertBanner").classList.remove("show");
+
+  if (!S.t0) return;                        // (only the timer part needs an active alert)
   clearInterval(S.timerId);
   const sec = ((Date.now()-S.t0)/1000);
   S.times.push(sec);
