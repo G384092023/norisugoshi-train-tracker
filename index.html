@@ -271,6 +271,7 @@
     </div>
 
     <p class="hint" id="refreshHint"></p>
+    <p class="hint" style="color:#b45309;margin-top:.3rem">📱 この画面を開いたままに — keep this screen open. Phone browsers pause tracking when you switch apps or lock the screen.</p>
     <button class="btn ghost mt" id="btnSwitch" onclick="toggleAlts()">🔀 別の列車に変更 — wrong train? switch</button>
     <div class="btn-row mt">
       <button class="btn ghost" onclick="poll()" id="btnRefresh">🔄 Refresh</button>
@@ -644,10 +645,28 @@ async function startTracking(){
   $("pFrom").textContent = stationTitle(S.line, S.train["odpt:fromStation"]);
   $("pTo").textContent   = stationTitle(S.line, S.destId);
 
+  keepAwake();              // keep the screen on so tracking isn't paused
   await fetchTimetable();   // scheduled ETA at the destination (optional)
   await poll();
   S.intervalId = setInterval(poll, POLL_MS);
 }
+
+// ---- keep awake + instant catch-up on return to foreground -----------------
+// Mobile browsers freeze a backgrounded page's timers, so polling stops when you
+// switch apps. We can't fully run in the background (web limitation), but we can:
+//  (a) hold a screen Wake Lock so the screen doesn't sleep while you're watching,
+//  (b) poll immediately the moment the app becomes visible again (instant catch-up).
+let _wakeLock = null;
+async function keepAwake(){
+  try { if ("wakeLock" in navigator) _wakeLock = await navigator.wakeLock.request("screen"); } catch(_){}
+}
+function releaseAwake(){ try { _wakeLock && _wakeLock.release(); } catch(_){} _wakeLock = null; }
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && S.tracking){
+    keepAwake();   // the OS drops the wake lock when hidden — re-acquire it
+    poll();        // catch up now instead of waiting for the next interval
+  }
+});
 
 // ---- scheduled ETA (timetable) --------------------------------------------
 const parseHM = (s) => { const [h,m] = s.split(":").map(Number); return h*60 + m; }; // minutes (can be ≥1440)
@@ -719,6 +738,7 @@ async function fetchTimetable(){
 function stopTracking(){
   clearInterval(S.intervalId); clearInterval(S.timerId);
   S.tracking=false;
+  releaseAwake();                      // let the screen sleep again
   bleSend(BLE_CLEAR);                  // make sure the device is left off
   $("liveDot").style.display="none";
   ["alertBanner","arriveBanner","warnBanner","timer"].forEach(id=>$(id).classList.remove("show"));
