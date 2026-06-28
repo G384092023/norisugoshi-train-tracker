@@ -709,14 +709,17 @@ function isJpHolidayUTC(D){
   }
   return false;
 }
-// Returns the ODPT calendar id that applies in Japan today.
+// Returns the ODPT calendar id for the current railway "service day" in Japan.
+// Trains running after midnight belong to the PREVIOUS day's schedule (e.g. a 00:48
+// train early Monday is part of Sunday's timetable). Trains run ~05:00–01:30 and none
+// run ~02:00–04:30, so we roll the service day back before 04:00 JST.
 function pickCalendar(){
-  const p = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Tokyo",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+  const p = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Tokyo",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",hourCycle:"h23"}).formatToParts(new Date());
   const g = (t) => +p.find(x=>x.type===t).value;
-  const y=g("year"), m=g("month"), d=g("day");
-  const D = new Date(Date.UTC(y,m-1,d));
-  const dow = D.getUTCDay();
-  const newYear = (m===1 && d<=3) || (m===12 && d===31);   // standard NY holiday schedule
+  let D = new Date(Date.UTC(g("year"), g("month")-1, g("day")));
+  if (g("hour") < 4) D = new Date(D.getTime() - 86400000);   // before 04:00 → previous service day
+  const dow = D.getUTCDay(), mm = D.getUTCMonth()+1, dd = D.getUTCDate();
+  const newYear = (mm===1 && dd<=3) || (mm===12 && dd===31);  // standard NY holiday schedule
   const holiday = dow===0 || dow===6 || newYear || isJpHolidayUTC(D);
   return holiday ? "odpt.Calendar:SaturdayHoliday" : "odpt.Calendar:Weekday";
 }
