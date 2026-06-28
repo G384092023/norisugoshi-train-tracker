@@ -136,3 +136,42 @@ then tackle Phase 2 option 1; fall back to option 2 if background throttling bit
 Same Capacitor project also builds for iOS, **but**: needs a **Mac** (or cloud macOS build)
 and the **$99/yr Apple Developer Program** to put it on participants' iPhones. Do Android
 first; add iOS only when the concept is proven and the budget's there.
+
+---
+
+## Day-to-day: debugging & redeploying vs the web app
+Honest comparison so there are no surprises. It depends on **what** you change.
+
+**Web-layer changes (HTML/CSS/JS — ~90% of edits: UI, tracking logic, ETA, alerts):**
+- **Debugging = same as web.** Plug in the phone → open `chrome://inspect` on your PC →
+  the *same* Chrome DevTools (console, breakpoints, network) on the app's WebView.
+- **While developing:** `npx cap run android --livereload --external` hot-reloads edits in
+  the app, just like web dev.
+- **Shipping to users:** rebuild the APK **or** use OTA (below).
+
+**Native-layer changes (Phase-2 service, plugins, permissions, AndroidManifest):**
+- Need a full **Android Studio rebuild** (~30 s–2 min) + reinstall; debugged via Logcat.
+- Change **rarely** — build the foreground service once, then mostly leave it alone.
+
+| Task | Web app | Native Android |
+|------|---------|----------------|
+| See a web edit while developing | instant | instant (live-reload) |
+| Debug web code | DevTools | **same DevTools** (remote) |
+| Push a web-layer fix to users | `git push` → refresh | rebuild APK **or OTA** |
+| Change native code | n/a | rebuild + reinstall APK |
+| Debug native code | n/a | Android Studio / Logcat |
+
+### Free OTA = most fixes stay almost as easy as `git push`
+You don't need a new APK for web-layer tweaks. Capacitor supports **over-the-air updates**
+of the web layer (HTML/JS) — installed apps pull the update on next launch, no reinstall,
+no store review (app stores allow OTA of interpreted code). Free/open-source option:
+**`@capgo/capacitor-updater`** (self-host or free tier). With it, a UI/logic fix is push →
+auto-update, much like the web app. **Native** changes still need a new APK.
+
+### Two habits that keep it painless
+1. **Keep the web app as the fast playground** — prototype/debug a change there first
+   (instant `git push`), then carry it into native. Native is *additive*, not a replacement.
+2. **Touch native rarely** — the background service is "build once, mostly leave alone."
+
+**Net:** with OTA, expect only mild extra friction (~10–20%) for typical web-layer changes,
+plus a real-but-infrequent APK rebuild when you change native code.
