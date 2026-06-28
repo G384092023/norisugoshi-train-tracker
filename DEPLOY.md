@@ -116,6 +116,15 @@ margin.
 > Occasional "failed" entries in cron-job.org are just Render's transient 404s — the
 > request still wakes the instance, so ignore them (or turn off that job's notifications).
 
+### If cron-job.org says "Response data too big" and disables the job
+This was a real bug we hit. Render's edge serves small responses over HTTP/2 **without a
+`Content-Length`**, and cron-job.org couldn't tell where the body ended → reported it as
+too big → auto-disabled the job after ~26 fails. **Fix (already applied):** `/healthz`
+now returns **`204 No Content`** (empty body) — nothing to choke on. If it ever happens
+again: **re-enable the job** in cron-job.org (it won't restart itself), and as a backup
+either turn off "Save responses" in the job settings or switch the pinger to **UptimeRobot**
+(free, status-code based) on the same `/healthz` URL.
+
 ---
 
 ## Making a change and redeploying — full steps
