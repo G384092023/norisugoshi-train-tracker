@@ -153,9 +153,16 @@ const server = http.createServer(async (req, res) => {
     // ---- ROUTE: health check ----------------------------------------------
     // A tiny endpoint for uptime pingers (e.g. cron-job.org) to keep a free host
     // awake. Returns "ok" instantly with no ODPT call — minimal bandwidth/quota.
+    // We MUST send an explicit Content-Length: without it Node uses chunked
+    // transfer-encoding, which cron-job.org mis-reports as "Response data too big".
     if (url.pathname === "/healthz") {
-      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-      return res.end("ok");
+      const body = "ok";
+      res.writeHead(200, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Length": Buffer.byteLength(body),
+        "Cache-Control": "no-store",
+      });
+      return res.end(body);
     }
 
     // ---- ROUTE: live trains -----------------------------------------------
