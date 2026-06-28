@@ -152,17 +152,13 @@ const server = http.createServer(async (req, res) => {
   try {
     // ---- ROUTE: health check ----------------------------------------------
     // A tiny endpoint for uptime pingers (e.g. cron-job.org) to keep a free host
-    // awake. Returns "ok" instantly with no ODPT call — minimal bandwidth/quota.
-    // We MUST send an explicit Content-Length: without it Node uses chunked
-    // transfer-encoding, which cron-job.org mis-reports as "Response data too big".
+    // awake. We return 204 No Content (an EMPTY body): Render's edge proxy strips
+    // Content-Length and serves small bodies over HTTP/2 without a declared size,
+    // which cron-job.org mis-reports as "Response data too big". With no body at
+    // all, there is nothing for it to choke on — and a 204 still counts as success.
     if (url.pathname === "/healthz") {
-      const body = "ok";
-      res.writeHead(200, {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Content-Length": Buffer.byteLength(body),
-        "Cache-Control": "no-store",
-      });
-      return res.end(body);
+      res.writeHead(204, { "Cache-Control": "no-store" });
+      return res.end();
     }
 
     // ---- ROUTE: live trains -----------------------------------------------
