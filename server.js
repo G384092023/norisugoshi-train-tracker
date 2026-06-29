@@ -151,13 +151,11 @@ const server = http.createServer(async (req, res) => {
   // of crashing the server.
   try {
     // ---- ROUTE: health check ----------------------------------------------
-    // A tiny endpoint for uptime pingers (e.g. cron-job.org) to keep a free host
-    // awake. We return 204 No Content (an EMPTY body): Render's edge proxy strips
-    // Content-Length and serves small bodies over HTTP/2 without a declared size,
-    // which cron-job.org mis-reports as "Response data too big". With no body at
-    // all, there is nothing for it to choke on — and a 204 still counts as success.
+    // A tiny endpoint for uptime pingers (UptimeRobot / cron-job.org) to keep a
+    // free host awake. We return 200 with an EMPTY body — success status that every
+    // monitor accepts, and no body for any of them to mis-report as "too large".
     if (url.pathname === "/healthz") {
-      res.writeHead(204, { "Cache-Control": "no-store" });
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
       return res.end();
     }
 
