@@ -94,36 +94,28 @@ A free Render service **sleeps after ~15 min idle** and takes ~30–60 s to wake
 also **auto-retries** failed fetches, so Render's occasional transient 404s heal
 themselves — but to skip the cold-start wait entirely, ping it on a schedule.
 
-There's a tiny endpoint for exactly this: **`/healthz`** (returns `ok`, no ODPT call).
+There's a tiny endpoint for exactly this: **`/healthz`** (returns **200 + empty body**,
+no ODPT call — nothing for a monitor to choke on).
 
-**Set up a free pinger (cron-job.org):**
-1. Sign up at https://cron-job.org → log in → **Create cronjob**.
+**Recommended pinger — UptimeRobot** (robust, punctual, free):
+1. Sign up at https://uptimerobot.com → **+ Add New Monitor**.
 2. Settings:
    | Field | Value |
    |-------|-------|
+   | Monitor Type | HTTP(s) |
    | URL | `https://norisugoshi-train-tracker.onrender.com/healthz` |
-   | Schedule | Every **10 minutes** |
-   | Time zone | Asia/Tokyo |
-   | Hours | 7 – 23 (your active hours) |
-   | Method | GET |
-3. Enable → Save.
+   | Interval | **5 minutes** (free minimum; < Render's 15-min sleep) |
+3. Create Monitor. It treats **200 = up** and its ~30 s timeout covers the cold-start wake.
+
+> **Why UptimeRobot over cron-job.org?** cron-job.org repeatedly mis-reported our empty
+> response as **"Response data too big"** and auto-disabled the job (it's picky about
+> responses with no declared `Content-Length`, which Render's HTTP/2 edge produces).
+> `/healthz` now returns a plain **200 with an empty body** to satisfy any monitor, but
+> UptimeRobot is the reliable choice. (cron-job.org still works if you prefer it — just
+> point it at `/healthz` and, if it complains, turn off "Save responses" in the job.)
 
 **Free-tier math:** Render gives **750 instance-hours/month**, shared across your free
-services. Pinging ~16 h/day ≈ 496 h/month — well inside free. (Even 24/7 ≈ 744 h fits,
-but only if this is your *only* free service.) Ping only the hours you use it for safety
-margin.
-
-> Occasional "failed" entries in cron-job.org are just Render's transient 404s — the
-> request still wakes the instance, so ignore them (or turn off that job's notifications).
-
-### If cron-job.org says "Response data too big" and disables the job
-This was a real bug we hit. Render's edge serves small responses over HTTP/2 **without a
-`Content-Length`**, and cron-job.org couldn't tell where the body ended → reported it as
-too big → auto-disabled the job after ~26 fails. **Fix (already applied):** `/healthz`
-now returns **`204 No Content`** (empty body) — nothing to choke on. If it ever happens
-again: **re-enable the job** in cron-job.org (it won't restart itself), and as a backup
-either turn off "Save responses" in the job settings or switch the pinger to **UptimeRobot**
-(free, status-code based) on the same `/healthz` URL.
+services. 24/7 pinging ≈ 744 h fits — but only if this is your *only* free service.
 
 ---
 
