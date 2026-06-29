@@ -306,7 +306,8 @@ const S = {
   intervalId: null,
   alertFired: false,
   alertAcked: false,   // user pressed "I'm awake" — silence the device until re-armed
-  schedMin: null,      // scheduled arrival at destination (minutes-of-day, from timetable)
+  ttStops: null,       // [{id, min}] the stations THIS train stops at + scheduled minute (from timetable)
+  stopSet: null,       // Set of station ids the train stops at (express trains skip some)
   lastVibStop: null,   // last stops-count we vibrated at (so we buzz once per stop, escalating)
   trainsLive: [],      // latest poll result (for the switch-train picker)
   missCount: 0,        // consecutive polls where our train wasn't in the feed
@@ -443,10 +444,12 @@ function renderTrainPicker(){
     const posTxt = to ? `${fromN} → ${stationTitle(S.line,to)}` : `${fromN} に停車中`;
     const destTxt = dest ? `${stationTitle(S.line,dest)}行` : tail(t["odpt:railDirection"]);
     const delay = t["odpt:delay"]||0;
+    const isLocal = /\.Local$/.test(t["odpt:trainType"]||"");
+    const typeTag = `<span class="badge ${isLocal?'gray':'amber'}" style="font-size:10px;padding:1px 7px">${isLocal?'各停 Local':'⚡ '+trainTypeLabel(t)}</span>`;
     return `<div class="train-opt" data-no="${no}" onclick="pickTrain('${no}')">
         <span class="train-no">${no}</span>
         <div class="train-meta">
-          <div class="pos">${posTxt}</div>
+          <div class="pos">${posTxt} ${typeTag}</div>
           <div class="sub">${destTxt}${delay>0?` · ${delay}s遅延`:""}</div>
         </div>
       </div>`;
@@ -480,13 +483,15 @@ async function refreshTrains(){
   b.disabled=false; b.textContent="🔄";
 }
 
-function pickTrain(no){
+async function pickTrain(no){
   S.trainNo = no;
   S.train = S.trains.find(t => (t["odpt:trainNumber"]||tail(t["owl:sameAs"]))===no);
   S.destId = "";   // direction may differ from the previous train — re-choose
   document.querySelectorAll(".train-opt").forEach(el=>el.classList.toggle("sel", el.dataset.no===no));
   $("s2").classList.add("done");
   $("card3").style.display = "block";
+  $("destList").innerHTML = '<p class="hint" style="text-align:left"><span class="spin d"></span> 時刻表を確認中… loading stops</p>';
+  await loadTimetable();    // so the picker can hide stations this (express) train skips
   buildDestList();
   checkReady();
 }
@@ -560,6 +565,15 @@ function buildDestList(){
     const o = r.order[i];
     const delta = (i - node) * dir;                  // 0 = here, >0 = ahead
     const isHere = delta === 0;
+    const skipped = !isHere && !trainStops(o.id);    // express train passes without stopping
+    if (skipped){
+      // shown for context but not selectable — the train won't stop here
+      return `<div class="dest-row passed" data-id="${o.id}" style="opacity:.5;color:#9ca3af">
+          <span class="ddot" style="background:#e5e7eb;box-shadow:0 0 0 1px #e5e7eb"></span>${o.ja}
+          <span style="color:#cbd5e1;font-size:11px">${o.en}</span>
+          <span class="rtag" style="background:#f3f4f6;color:#9ca3af">通過 skip</span>
+        </div>`;
+    }
     const color = isHere ? "#2563eb" : heatColor(termDelta ? delta/termDelta : 1); // blue → red
     const cls = isHere ? "here" : "ahead";
     const click = isHere ? "" : ` onclick="selectDest('${o.id}', this)"`;
@@ -646,7 +660,7 @@ async function startTracking(){
   $("pTo").textContent   = stationTitle(S.line, S.destId);
 
   keepAwake();              // keep the screen on so tracking isn't paused
-  await fetchTimetable();   // scheduled ETA at the destination (optional)
+  if (!S.ttStops) await loadTimetable();   // already loaded in pickTrain, but be safe
   await poll();
   S.intervalId = setInterval(poll, POLL_MS);
 }
@@ -724,18 +738,43 @@ function pickCalendar(){
   return holiday ? "odpt.Calendar:SaturdayHoliday" : "odpt.Calendar:Weekday";
 }
 
-// Fetch the selected train's timetable and find the scheduled time at the destination.
-async function fetchTimetable(){
-  S.schedMin = null;
+// Load the selected train's timetable: the exact stations it stops at (express trains
+// skip some) + each scheduled time. Used for the ETA and for accurate stop counting.
+async function loadTimetable(){
+  S.ttStops = null; S.stopSet = null;
   try {
     const cal = pickCalendar();
     const tt = await getJSON(`/api/timetable?railway=${encodeURIComponent(S.line)}`
                            + `&train=${encodeURIComponent(S.trainNo)}&calendar=${cal}`);
     const stops = (tt[0] || {})["odpt:trainTimetableObject"] || [];
-    const at = stops.find(o => o["odpt:arrivalStation"]===S.destId || o["odpt:departureStation"]===S.destId);
-    const hm = at && (at["odpt:arrivalTime"] || at["odpt:departureTime"]);
-    if (hm) S.schedMin = parseHM(hm);
-  } catch(_){ /* timetable is optional — fall back to "—" */ }
+    if (stops.length){
+      S.ttStops = stops.map(o => {
+        const id = o["odpt:arrivalStation"] || o["odpt:departureStation"];
+        const hm = o["odpt:arrivalTime"] || o["odpt:departureTime"];
+        return { id, min: hm ? parseHM(hm) : null };
+      }).filter(s => s.id);
+      S.stopSet = new Set(S.ttStops.map(s => s.id));
+    }
+  } catch(_){ /* timetable is optional — counting falls back to line order */ }
+}
+// Does this train stop at station `id`? (true if Local / no timetable → counts every stop)
+function trainStops(id){ return !S.stopSet || S.stopSet.has(id); }
+// Human-readable train type, e.g. "AirportRapidLimitedExpress" -> "Airport Rapid Limited Express"
+function trainTypeLabel(t){
+  const raw = tail(t && t["odpt:trainType"] || "");
+  return (raw.replace(/([a-z])([A-Z])/g, "$1 $2")) || "Local";
+}
+// Count the ACTUAL stops the train makes from just past `node` through `destNode`
+// (inclusive). For Local trains this equals the line-order distance; for express
+// trains it counts only the stations they actually stop at.
+function countStopsTo(r, node, dir, destNode){
+  if (node === destNode) return 0;
+  let n = 0;
+  for (let i = node + dir; i >= 0 && i < r.order.length; i += dir){
+    if (trainStops(r.order[i].id)) n++;
+    if (i === destNode) return n;
+  }
+  return null;
 }
 
 function stopTracking(){
@@ -817,28 +856,31 @@ function render(t){
   const destBound = (t["odpt:destinationStation"]||[])[0];
   const delay = t["odpt:delay"]||0;
 
-  $("tNo").textContent = S.trainNo;
+  const isLocal = /\.Local$/.test(t["odpt:trainType"]||"");
+  $("tNo").innerHTML = `${S.trainNo} <span class="badge ${isLocal?'gray':'amber'}" style="font-size:10px;padding:1px 7px">${isLocal?'各停 Local':'⚡ '+trainTypeLabel(t)}</span>`;
   $("tPos").textContent = toId ? `${stationTitle(S.line,fromId)} → ${stationTitle(S.line,toId)}`
                                : `${stationTitle(S.line,fromId)} 停車中`;
   $("tDest").textContent = destBound ? stationTitle(S.line,destBound) : tail(t["odpt:railDirection"]);
   $("tDelay").textContent = delay>0 ? `+${delay}s (${Math.round(delay/60)}分)` : "定刻 on time";
 
-  // scheduled vs current ETA at the destination (timetable + live delay)
-  if (S.schedMin != null){
+  // scheduled vs current ETA at the destination (this train's own timetable + live delay)
+  const sched = (S.ttStops || []).find(s => s.id === S.destId);
+  if (sched && sched.min != null){
     const dmin = Math.round(delay/60);
-    $("etaSched").textContent = fmtHM(S.schedMin);
-    $("etaNow").textContent   = fmtHM(S.schedMin + dmin) + (dmin>0 ? ` ⚠️ +${dmin}分` : " ✓ 定刻");
+    $("etaSched").textContent = fmtHM(sched.min);
+    $("etaNow").textContent   = fmtHM(sched.min + dmin) + (dmin>0 ? ` ⚠️ +${dmin}分` : " ✓ 定刻");
   } else {
     $("etaSched").textContent = "—"; $("etaNow").textContent = "—";
   }
 
-  // current node + travel direction, then stops to destination by walking the path
+  // current node + travel direction, then stops to destination — counting only the
+  // stops THIS train actually makes (express trains skip stations; countStopsTo handles it)
   const cur = currentNode(r, t, S.travelDir);
   const dir = cur.dir || S.travelDir || +1;
   let stops = null, wrongWay = false, destNode = -1;
   if (cur.node>=0){
     let d = walk(r.order, cur.node, dir, S.destId);
-    if (d!=null){ stops=d; destNode = cur.node + dir*d; }
+    if (d!=null){ destNode = cur.node + dir*d; stops = countStopsTo(r, cur.node, dir, destNode) ?? d; }
     else {
       const back = walk(r.order, cur.node, -dir, S.destId);
       if (back!=null){ stops=back; wrongWay=true; destNode = cur.node - dir*back; }
@@ -905,10 +947,13 @@ function renderStops(r, node, destNode, dir){
     const o = r.order[i];
     const d = (i - node) * dir;                // signed steps from current (>0 ahead)
     const isCur = i===node, isTgt = i===destNode;
-    const color = (d < 0 || d > D) ? "#cbd5e1" : heatColor(d / D); // grey if passed/beyond
-    let cls = ""; if (d < 0 || d > D) cls = "passed"; if (isCur) cls = "cur"; if (isTgt) cls = "tgt";
-    const tag = isCur ? '<span class="tag here">現在地</span>'
-              : isTgt ? '<span class="tag off">降車</span>' : "";
+    const skip = d > 0 && d < D && !trainStops(o.id);   // express passes through without stopping
+    let color, cls = "", tag = "";
+    if (d < 0 || d > D || skip){ color = "#cbd5e1"; cls = "passed"; }
+    else color = heatColor(d / D);
+    if (skip)  tag = '<span class="tag" style="background:#f3f4f6;color:#9ca3af">通過</span>';
+    if (isCur){ cls = "cur"; tag = '<span class="tag here">現在地</span>'; }
+    if (isTgt){ cls = "tgt"; tag = '<span class="tag off">降車</span>'; }
     html += `<li class="${cls}" style="color:${color}">`
           + `<span class="dot" style="background:${color};box-shadow:0 0 0 1px ${color}"></span>`
           + `${o.ja} <span style="color:#9ca3af;font-size:11px">${o.en}</span>${tag}</li>`;
@@ -1010,12 +1055,12 @@ function switchTrain(no){
   S.trainNo=no; S.train=t; S.lastSeen=t; S.missCount=0;
   S.travelDir = ev ? ev.dir : (currentNode(r,t).dir || S.travelDir || 1);
   S.alertFired=false; S.alertAcked=false; S._startNode=null;
-  S.schedMin=null; S.lastVibStop=null;
+  S.ttStops=null; S.stopSet=null; S.lastVibStop=null;
   S.altOpen=false; updateSwitchBtn();
   clearWarn(); hideAlts();
   $("pFrom").textContent = stationTitle(S.line, t["odpt:fromStation"]);
   render(t);
-  fetchTimetable().then(() => { if (S.tracking) render(S.train); }); // refresh ETA for the new train
+  loadTimetable().then(() => { if (S.tracking) render(S.train); }); // ETA + stops for the new train
 }
 
 // ============================================================ ALERTS / SIGNALS
