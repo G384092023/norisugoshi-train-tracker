@@ -221,6 +221,16 @@
     </div>
 
     <button class="btn primary" id="btnStart" onclick="startTracking()" disabled>▶ 追跡開始 — Start tracking</button>
+
+    <div class="card" style="margin-top:.85rem">
+      <div class="section-label" style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">🧪 実験データ — response-time log</div>
+      <div class="btn-row">
+        <button class="btn ghost" id="btnExport" onclick="exportLog()" disabled>📥 反応時間データ Export CSV (0)</button>
+        <button class="btn ghost" style="max-width:42%" onclick="clearLog()">🗑 Clear</button>
+      </div>
+      <p class="hint" style="text-align:left;margin:.5rem 0 0">Each "起きた / I'm awake" tap is saved on this device (survives restarts). Export downloads a CSV.</p>
+    </div>
+
     <p class="hint">Data: ODPT (公共交通オープンデータ) · station-level, ~30–60s refresh</p>
   </div>
 
@@ -271,7 +281,7 @@
     </div>
 
     <p class="hint" id="refreshHint"></p>
-    <p class="hint" style="color:#b45309;margin-top:.3rem">📱 この画面を開いたままに — keep this screen open. Phone browsers pause tracking when you switch apps or lock the screen.</p>
+    <p class="hint" id="screenNote" style="color:#b45309;margin-top:.3rem">📱 この画面を開いたままに — keep this screen open. Phone browsers pause tracking when you switch apps or lock the screen.</p>
     <button class="btn ghost mt" id="btnSwitch" onclick="toggleAlts()">🔀 別の列車に変更 — wrong train? switch</button>
     <div class="btn-row mt">
       <button class="btn ghost" onclick="poll()" id="btnRefresh">🔄 Refresh</button>
@@ -315,8 +325,9 @@ const S = {
   altOpen: false,      // user manually opened the switch-train picker
   ble: { device: null, char: null },
   // response-time experiment
-  t0: null, timerId: null, times: [],
+  t0: null, timerId: null, times: [], alertCtx: null,
 };
+const LOG_KEY = "norisugoshi_response_log";   // persisted experiment records (localStorage)
 
 window.S = S; // exposed for debugging
 // ============================================================ HELPERS
@@ -348,8 +359,14 @@ async function getJSON(path, tries = 5){
 }
 
 // ============================================================ INIT
+const IS_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 init();
+function onReady(){
+  updateExportBtn();                                   // show how many records are saved
+  if (IS_NATIVE) $("screenNote").style.display = "none"; // native won't be paused by backgrounding the browser
+}
 async function init(){
+  onReady();
   try {
     $("s1sub").textContent = "loading…";
     // 1) all live trains  2) all railway metadata  (in parallel)
@@ -1074,6 +1091,13 @@ function fireAlert(stops){
   $("alertBanner").classList.add("show");
   if (S.alertFired) return;     // fire the signal channels once per approach
   S.alertFired = true;
+  // snapshot the context so the response time can be logged with full detail
+  S.alertCtx = {
+    line: tail(S.line), train: S.trainNo,
+    trainType: tail((S.train && S.train["odpt:trainType"]) || "") || "Local",
+    dest: tail(S.destId), alertStopsBefore: S.alertN, stopsAtAlert: stops,
+    delaySec: (S.train && S.train["odpt:delay"]) || 0, ble: !!S.ble.char,
+  };
   signal();                     // notification + vibrate + beep + BLE
   startTimer();
 }
@@ -1209,10 +1233,42 @@ function stopTimer(){
   const sec = ((Date.now()-S.t0)/1000);
   S.times.push(sec);
   const avg = S.times.reduce((a,b)=>a+b,0)/S.times.length;
+
+  // ── persist the record so the experiment data survives reloads/restarts ──
+  const rec = Object.assign({ awakeAt: new Date().toISOString(), responseSec: +sec.toFixed(2) }, S.alertCtx || {});
+  const log = loadLog(); log.push(rec); try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch(_){}
+
   $("timerVal").textContent = sec.toFixed(2)+"s";
   const res=$("timerRes"); res.style.display="block";
-  res.textContent = `✅ ${sec.toFixed(2)}s · session avg ${avg.toFixed(2)}s (n=${S.times.length})`;
+  res.innerHTML = `✅ ${sec.toFixed(2)}s · session avg ${avg.toFixed(2)}s · 記録 ${log.length} 件 保存済み`;
+  updateExportBtn();
   S.t0=null;
+}
+
+// ── experiment log persistence + CSV export ──
+function loadLog(){ try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]"); } catch(_){ return []; } }
+function updateExportBtn(){
+  const b = $("btnExport"); if (!b) return;
+  const n = loadLog().length;
+  b.textContent = `📥 反応時間データ Export CSV (${n})`;
+  b.disabled = n === 0;
+}
+function exportLog(){
+  const log = loadLog();
+  if (!log.length){ alert("No response times logged yet."); return; }
+  const cols = ["awakeAt","responseSec","line","train","trainType","dest","alertStopsBefore","stopsAtAlert","delaySec","ble"];
+  const csv = [cols.join(",")]
+    .concat(log.map(r => cols.map(c => { const v = r[c]; return /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : (v ?? ""); }).join(",")))
+    .join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = `norisugoshi_response_times_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+function clearLog(){
+  if (!confirm("Delete all logged response times on this device?")) return;
+  try { localStorage.removeItem(LOG_KEY); } catch(_){}
+  S.times = []; updateExportBtn();
 }
 </script>
 </body>
