@@ -323,7 +323,7 @@ const S = {
   missCount: 0,        // consecutive polls where our train wasn't in the feed
   lastSeen: null,      // last known data for our train
   altOpen: false,      // user manually opened the switch-train picker
-  ble: { device: null, char: null },
+  ble: { device: null, char: null, deviceId: null },
   // response-time experiment
   t0: null, timerId: null, times: [], alertCtx: null,
 };
@@ -360,6 +360,19 @@ async function getJSON(path, tries = 5){
 
 // ============================================================ INIT
 const IS_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
+// ── Phase 2 native plugin handles (null on web) ──────────────────────────────
+let _BLE = null, _LN = null, _HP = null, _FG = null;
+function initPlugins(){
+  if (!IS_NATIVE) return;
+  const P = window.Capacitor?.Plugins || {};
+  _BLE = P.BluetoothLe                || null;  // @capacitor-community/bluetooth-le
+  _LN  = P.LocalNotifications         || null;  // @capacitor/local-notifications
+  _HP  = P.Haptics                    || null;  // @capacitor/haptics
+  _FG  = P.AndroidForegroundService   || null;  // @capawesome-team/capacitor-android-foreground-service
+}
+window.addEventListener("load", initPlugins);
+
 init();
 function onReady(){
   updateExportBtn();                                   // show how many records are saved
@@ -392,6 +405,10 @@ async function init(){
         ja: r["dc:title"] || tail(id),
         en: (r["odpt:railwayTitle"]||{}).en || tail(id),
         order, occ, titleById,
+        // deterministic direction mapping: ascending = increasing station index = +1.
+        // Always present in ODPT metadata, so direction never depends on live traffic.
+        asc:  r["odpt:ascendingRailDirection"]  || null,
+        desc: r["odpt:descendingRailDirection"] || null,
       };
     });
 
@@ -520,6 +537,12 @@ async function pickTrain(no){
 function buildDirMap(){
   const r = S.railways[S.line]; if (!r) return;
   S.dirByRailDir = {};
+  // 1) deterministic from railway metadata — always correct, traffic-independent.
+  //    ascending direction = increasing station index = +1.
+  if (r.asc)  S.dirByRailDir[r.asc]  = +1;
+  if (r.desc) S.dirByRailDir[r.desc] = -1;
+  // 2) fallback for any direction the metadata didn't declare: learn it from a live
+  //    in-transit train whose from→to we can resolve to an adjacent pair.
   for (const t of S.trains){
     const rd = t["odpt:railDirection"]; if (!rd || S.dirByRailDir[rd]!=null) continue;
     const toId = t["odpt:toStation"]; if (!toId) continue;
@@ -537,21 +560,35 @@ function trainPath(r, t){
   const term = (t["odpt:destinationStation"]||[])[0];
   let node = -1, dir = 0;
 
-  // 1) from -> to adjacency (most reliable)
+  // 1) from -> to adjacency (most reliable; in-transit trains)
   if (toId){
     for (const i of occ){
       if (r.order[i+1] && r.order[i+1].id===toId){ node=i; dir=+1; break; }
       if (r.order[i-1] && r.order[i-1].id===toId){ node=i; dir=-1; break; }
     }
   }
-  // 2) walk toward the destination, if it's on this line
+  // 2) STOPPED train: use the deterministic railDirection. This must come BEFORE the
+  //    "walk toward the terminus" step, because on spiral lines the terminus (e.g.
+  //    Tochomae) appears twice in the order, so a walk finds it in *either* direction
+  //    and would greedily pick +1 — reversing the destination list. railDirection is
+  //    unambiguous, so it fixes that.
+  if (node < 0){
+    const rd = S.dirByRailDir[t["odpt:railDirection"]];
+    if (rd){
+      // prefer the fromStation occurrence from which the terminus is reachable in rd
+      for (const i of occ){ if (term && walk(r.order, i, rd, term)!=null){ node=i; break; } }
+      if (node < 0) node = occ.length ? occ[0] : -1;
+      dir = rd;
+    }
+  }
+  // 3) last resort: walk toward the destination if railDirection is unknown
   if (node < 0 && term){
     for (const i of occ){
       if (walk(r.order, i, +1, term)!=null){ node=i; dir=+1; break; }
       if (walk(r.order, i, -1, term)!=null){ node=i; dir=-1; break; }
     }
   }
-  // 3) fall back to the learned railDirection (handles stopped train + off-line destination)
+  // 4) absolute fallback
   if (node < 0){
     node = occ.length ? occ[0] : -1;
     dir  = S.dirByRailDir[t["odpt:railDirection"]] || +1;
@@ -653,21 +690,23 @@ async function startTracking(){
   S.altOpen = false; updateSwitchBtn();
   S.tracking = true;
 
-  // lock travel direction from the train's reported next stop (most reliable),
-  // else infer from the chosen destination relative to current position.
+  // lock travel direction. trainPath already resolves this robustly (from→to adjacency,
+  // else the deterministic railDirection — which is unambiguous on spiral lines), so use
+  // it instead of a greedy walk toward the destination (that would mis-pick on Tochomae).
   const r = S.railways[S.line];
-  const cur = currentNode(r, S.train, +1);   // best-effort node + dir from from/to
-  if (cur.dir !== 0) S.travelDir = cur.dir;
-  else {
-    // stopped train: pick whichever direction reaches the destination
-    const node = cur.node;
-    S.travelDir = (node>=0 && walk(r.order, node, +1, S.destId) != null) ? +1 : -1;
-  }
+  const tp = trainPath(r, S.train);
+  S.travelDir = tp.dir || +1;
   S._startNode = null; // boarding node, set on first render for the progress bar
 
   // ask for notification permission up front
-  if ("Notification" in window && Notification.permission === "default") {
+  if (IS_NATIVE && _LN) {
+    try { await _LN.requestPermissions(); } catch(_){}
+  } else if ("Notification" in window && Notification.permission === "default") {
     try { await Notification.requestPermission(); } catch(_){}
+  }
+  // start foreground service so Android keeps this process alive while backgrounded
+  if (IS_NATIVE && _FG) {
+    try { await _FG.startForegroundService({ title:"乗り過ごし防止", body:"列車追跡中… tracking your train", id:100, smallIcon:"ic_stat_icon_config_sample" }); } catch(_){}
   }
 
   $("setupView").style.display = "none";
@@ -702,6 +741,17 @@ document.addEventListener("visibilitychange", () => {
 // ---- scheduled ETA (timetable) --------------------------------------------
 const parseHM = (s) => { const [h,m] = s.split(":").map(Number); return h*60 + m; }; // minutes (can be ≥1440)
 const fmtHM   = (m) => { m = ((m % 1440) + 1440) % 1440; return String(Math.floor(m/60)).padStart(2,"0") + ":" + String(m%60).padStart(2,"0"); };
+// current time in JST minutes-since-midnight (for the past-ETA guard)
+function jstNowMin(){
+  const p = new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Tokyo",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(new Date());
+  return (+p.find(x=>x.type==="hour").value)*60 + (+p.find(x=>x.type==="minute").value);
+}
+// is `etaMin` already in the past vs now? minutes now is ahead of eta, 0..1439 (wrap-safe).
+// 1min..12h behind = genuinely in the past (a late train / overdue); >12h = it's actually ahead.
+function etaIsPast(etaMin){
+  const behind = (((jstNowMin() - etaMin) % 1440) + 1440) % 1440;
+  return behind > 1 && behind < 720;
+}
 
 // ---- Japanese calendar: which ODPT timetable applies today (Weekday vs SaturdayHoliday) ----
 // Self-contained (no external API). Covers fixed holidays, Happy-Monday holidays,
@@ -759,20 +809,30 @@ function pickCalendar(){
 // skip some) + each scheduled time. Used for the ETA and for accurate stop counting.
 async function loadTimetable(){
   S.ttStops = null; S.stopSet = null;
-  try {
-    const cal = pickCalendar();
-    const tt = await getJSON(`/api/timetable?railway=${encodeURIComponent(S.line)}`
-                           + `&train=${encodeURIComponent(S.trainNo)}&calendar=${cal}`);
-    const stops = (tt[0] || {})["odpt:trainTimetableObject"] || [];
-    if (stops.length){
-      S.ttStops = stops.map(o => {
-        const id = o["odpt:arrivalStation"] || o["odpt:departureStation"];
-        const hm = o["odpt:arrivalTime"] || o["odpt:departureTime"];
-        return { id, min: hm ? parseHM(hm) : null };
-      }).filter(s => s.id);
-      S.stopSet = new Set(S.ttStops.map(s => s.id));
-    }
-  } catch(_){ /* timetable is optional — counting falls back to line order */ }
+  const cal = pickCalendar();
+  // retry once: a cold proxy can time out the first call, which would silently leave us
+  // with no stop set → an express train counted as a local (over-counted stops).
+  for (let attempt = 0; attempt < 2; attempt++){
+    try {
+      const tt = await getJSON(`/api/timetable?railway=${encodeURIComponent(S.line)}`
+                             + `&train=${encodeURIComponent(S.trainNo)}&calendar=${cal}`);
+      const stops = (tt[0] || {})["odpt:trainTimetableObject"] || [];
+      if (stops.length){
+        S.ttStops = stops.map(o => {
+          const id = o["odpt:arrivalStation"] || o["odpt:departureStation"];
+          const hm = o["odpt:arrivalTime"] || o["odpt:departureTime"];
+          return { id, min: hm ? parseHM(hm) : null };
+        }).filter(s => s.id);
+        S.stopSet = new Set(S.ttStops.map(s => s.id));
+        S.ttApprox = false;
+        return;
+      }
+      break;  // empty (wrong calendar / number mismatch) — a retry won't help
+    } catch(_){ /* network error — loop retries once */ }
+  }
+  // No timetable. Counting falls back to line order, which OVER-counts express trains.
+  // Flag it (only meaningful for non-Local) so the UI can warn instead of lying silently.
+  S.ttApprox = !/\.Local$/.test((S.train && S.train["odpt:trainType"]) || "");
 }
 // Does this train stop at station `id`? (true if Local / no timetable → counts every stop)
 function trainStops(id){ return !S.stopSet || S.stopSet.has(id); }
@@ -794,11 +854,34 @@ function countStopsTo(r, node, dir, destNode){
   return null;
 }
 
+// Pick the destination's scheduled stop on the LEG the user is actually riding.
+// Spiral lines (Oedo) list the same station id twice in one train's run at different
+// times, so a plain ttStops.find(id) grabs the wrong (earlier) pass. Instead: locate
+// the train's current position in its run (ttStops index of `fromId`) and step `stops`
+// actual stops ahead — landing on the correct occurrence. Ties the ETA to the same
+// count the countdown shows. Returns the {id,min} entry, or null if it can't be mapped.
+function schedForDest(fromId, stops){
+  const tt = S.ttStops;
+  if (!tt || stops == null || stops < 0) return null;
+  // every ttStops index where the train is at the current station (usually one)
+  const here = [];
+  tt.forEach((s, i) => { if (s.id === fromId) here.push(i); });
+  // choose the occurrence whose +stops lands on the chosen destination
+  for (const ci of here){
+    const d = tt[ci + stops];
+    if (d && d.id === S.destId) return d;
+  }
+  // safe fallback: only if the destination is unambiguous (appears once) in the run
+  const all = tt.filter(s => s.id === S.destId);
+  return all.length === 1 ? all[0] : null;  // ambiguous + unmapped → show "—", never a wrong time
+}
+
 function stopTracking(){
   clearInterval(S.intervalId); clearInterval(S.timerId);
   S.tracking=false;
   releaseAwake();                      // let the screen sleep again
   bleSend(BLE_CLEAR);                  // make sure the device is left off
+  if (IS_NATIVE && _FG) { try { _FG.stopForegroundService(); } catch(_){} }
   $("liveDot").style.display="none";
   ["alertBanner","arriveBanner","warnBanner","timer"].forEach(id=>$(id).classList.remove("show"));
   S.altOpen=false; updateSwitchBtn(); hideAlts();
@@ -811,6 +894,9 @@ async function poll(){
   const btn = $("btnRefresh");
   btn.disabled = true; btn.innerHTML = '<span class="spin d"></span> …';
   try {
+    // if the timetable failed to load and this is an express, keep retrying quietly so the
+    // stop count stops over-counting as soon as the proxy is reachable again
+    if (S.ttApprox && S.train) await loadTimetable();
     const trains = await getJSON("/api/trains?railway=" + encodeURIComponent(S.line));
     S.trainsLive = trains;
     const t = trains.find(x => (x["odpt:trainNumber"]||tail(x["owl:sameAs"]))===S.trainNo);
@@ -832,7 +918,8 @@ async function poll(){
       render(t);
     }
     $("refreshHint").textContent =
-      `更新 ${new Date().toLocaleTimeString("ja-JP")} · ${trains.length} trains on line · auto ${POLL_MS/1000}s`;
+      `更新 ${new Date().toLocaleTimeString("ja-JP")} · ${trains.length} trains on line · auto ${POLL_MS/1000}s`
+      + (S.ttApprox ? " · ⚠️時刻表なし(駅数は概算)" : "");
   } catch(e){
     showErr("Fetch failed (" + e.message + ")");
     $("tStatus").textContent="offline"; $("tStatus").className="badge red";
@@ -880,16 +967,6 @@ function render(t){
   $("tDest").textContent = destBound ? stationTitle(S.line,destBound) : tail(t["odpt:railDirection"]);
   $("tDelay").textContent = delay>0 ? `+${delay}s (${Math.round(delay/60)}分)` : "定刻 on time";
 
-  // scheduled vs current ETA at the destination (this train's own timetable + live delay)
-  const sched = (S.ttStops || []).find(s => s.id === S.destId);
-  if (sched && sched.min != null){
-    const dmin = Math.round(delay/60);
-    $("etaSched").textContent = fmtHM(sched.min);
-    $("etaNow").textContent   = fmtHM(sched.min + dmin) + (dmin>0 ? ` ⚠️ +${dmin}分` : " ✓ 定刻");
-  } else {
-    $("etaSched").textContent = "—"; $("etaNow").textContent = "—";
-  }
-
   // current node + travel direction, then stops to destination — counting only the
   // stops THIS train actually makes (express trains skip stations; countStopsTo handles it)
   const cur = currentNode(r, t, S.travelDir);
@@ -902,6 +979,23 @@ function render(t){
       const back = walk(r.order, cur.node, -dir, S.destId);
       if (back!=null){ stops=back; wrongWay=true; destNode = cur.node - dir*back; }
     }
+  }
+
+  // scheduled vs current ETA at the destination (this train's own timetable + live delay).
+  // Anchored to the leg the user is on (see schedForDest) so spiral lines like Oedo show
+  // the correct pass — not the first time the train touches a twice-served station.
+  const sched = (!wrongWay) ? schedForDest(fromId, stops) : null;
+  if (sched && sched.min != null){
+    const dmin = Math.round(delay/60);
+    const etaMin = sched.min + dmin;
+    $("etaSched").textContent = fmtHM(sched.min);
+    // guard: if the expected arrival is already in the past (a late train whose delay ODPT
+    // under-reports as 0), don't show a confusing past clock-time — show "overdue/soon".
+    $("etaNow").textContent = etaIsPast(etaMin)
+      ? "🕒 まもなく（遅延）"
+      : fmtHM(etaMin) + (dmin>0 ? ` ⚠️ +${dmin}分` : " ✓ 定刻");
+  } else {
+    $("etaSched").textContent = "—"; $("etaNow").textContent = "—";
   }
 
   const cd = $("countdown");
@@ -919,8 +1013,11 @@ function render(t){
   } else if (stops===0){
     cd.innerHTML = `🚉<small> 到着 arrived</small>`; cd.className="countdown arrived";
     $("tStatus").textContent="到着 arrived"; $("tStatus").className="badge green";
-    const wasAcked = S.alertAcked;   // arrived() re-arms the flag; capture first
+    const wasAcked = S.alertAcked, wasFired = S.alertFired;  // arrived() resets both; capture first
     arrived(); keepAlts();
+    // latch: if polling jumped straight to arrival without ever entering the alert window,
+    // the signal channels never fired — fire them now (after arrived()'s clear, so BLE stays on)
+    if (!wasAcked && !wasFired) ensureSignaled(0);
     if (!wasAcked && S.lastVibStop!==0){ vibrateForStops(0); S.lastVibStop=0; }
   } else {
     clearWarn(); keepAlts();
@@ -1084,22 +1181,29 @@ function switchTrain(no){
 function warn(msg){ $("warnText").textContent=msg; $("warnBanner").classList.add("show"); }
 function clearWarn(){ $("warnBanner").classList.remove("show"); }
 
+// Fire the alert signal channels (notification + beep + BLE + timer) EXACTLY ONCE per
+// approach. Latching: a sparse poll (e.g. background-throttled) can jump the train past
+// the alert window straight to arrival without any poll observing 0<stops<=alertN — this
+// guarantees the signal still fires in that case (called from the arrived branch too).
+function ensureSignaled(stops){
+  if (S.alertFired || S.alertAcked) return;
+  S.alertFired = true;
+  S.alertCtx = {
+    line: tail(S.line), train: S.trainNo,
+    trainType: tail((S.train && S.train["odpt:trainType"]) || "") || "Local",
+    dest: tail(S.destId), alertStopsBefore: S.alertN, stopsAtAlert: stops,
+    delaySec: (S.train && S.train["odpt:delay"]) || 0,
+    ble: !!(S.ble.char || S.ble.deviceId),   // native uses deviceId, web uses char
+  };
+  signal();                     // notification + beep + BLE
+  startTimer();
+}
 function fireAlert(stops){
   if (S.alertAcked) return;     // user pressed "I'm awake" — stay silent this approach
   clearWarn();
   $("alertText").textContent = `あと ${stops} 駅で ${stationTitle(S.line,S.destId)}！降りる準備を — ${stops} stop${stops>1?"s":""} to your stop!`;
   $("alertBanner").classList.add("show");
-  if (S.alertFired) return;     // fire the signal channels once per approach
-  S.alertFired = true;
-  // snapshot the context so the response time can be logged with full detail
-  S.alertCtx = {
-    line: tail(S.line), train: S.trainNo,
-    trainType: tail((S.train && S.train["odpt:trainType"]) || "") || "Local",
-    dest: tail(S.destId), alertStopsBefore: S.alertN, stopsAtAlert: stops,
-    delaySec: (S.train && S.train["odpt:delay"]) || 0, ble: !!S.ble.char,
-  };
-  signal();                     // notification + vibrate + beep + BLE
-  startTimer();
+  ensureSignaled(stops);        // fire the signal channels once per approach
 }
 function clearAlert(){
   $("alertBanner").classList.remove("show");
@@ -1115,13 +1219,22 @@ function arrived(){
   $("arriveBanner").classList.add("show");
 }
 
-// the multi-channel "signal" — extend BLE payload later for the haptic glove
+// the multi-channel "signal" — fires once per approach when the alert threshold is crossed
 function signal(){
-  // 1) browser notification
-  if ("Notification" in window && Notification.permission==="granted"){
-    try { new Notification("乗り過ごし防止 ⚡", { body:`まもなく ${stationTitle(S.line,S.destId)}。降りる準備を！`, requireInteraction:true }); } catch(_){}
+  const stopName = stationTitle(S.line, S.destId);
+  // 1) system popup notification (native: LocalNotifications; web: Notification API)
+  if (IS_NATIVE && _LN){
+    _LN.schedule({ notifications:[{
+      title: "乗り過ごし防止 ⚡",
+      body:  `まもなく ${stopName}。降りる準備を！`,
+      id: 2,
+      smallIcon: "ic_stat_icon_config_sample",
+    }]}).catch(()=>{});
+  } else if ("Notification" in window && Notification.permission==="granted"){
+    try { new Notification("乗り過ごし防止 ⚡", { body:`まもなく ${stopName}。降りる準備を！`, requireInteraction:true }); } catch(_){}
   }
-  // 2) phone vibration is handled per-stop in render() (escalating), not here
+  // 2) one-shot native haptic burst on alert fire (escalating per-stop is in render→vibrateForStops)
+  if (IS_NATIVE && _HP){ _HP.vibrate({ duration:700 }).catch(()=>{}); }
   // 3) audible beep
   beep();
   // 4) BLE haptic device (LED stand-in)
@@ -1129,15 +1242,21 @@ function signal(){
 }
 
 // Escalating phone vibration: stronger/longer the closer the train gets.
-// (iOS ignores navigator.vibrate — works on Android Chrome.)
 function vibrateForStops(stops){
+  if (IS_NATIVE && _HP){
+    // native Haptics plugin — simple duration escalation (no pattern API on Haptics.vibrate)
+    const dur = stops === 0 ? 900 : 200 + Math.max(1, S.alertN - stops + 1) * 120;
+    _HP.vibrate({ duration: dur }).catch(()=>{});
+    return;
+  }
+  // Web fallback (iOS ignores navigator.vibrate; works on Android Chrome)
   if (!navigator.vibrate) return;
-  if (stops === 0){ navigator.vibrate([600,150,600,150,700]); return; } // arrival = strongest
-  const closeness = Math.max(1, S.alertN - stops + 1);   // 1 at the edge → bigger as it nears
-  const buzz = 150 + closeness * 130;                    // longer pulses when closer
+  if (stops === 0){ navigator.vibrate([600,150,600,150,700]); return; }
+  const closeness = Math.max(1, S.alertN - stops + 1);
+  const buzz = 150 + closeness * 130;
   const pattern = [];
   for (let i=0;i<closeness;i++){ pattern.push(buzz, 110); }
-  pattern.pop();                                         // drop trailing gap
+  pattern.pop();
   navigator.vibrate(pattern);
 }
 
@@ -1156,14 +1275,14 @@ function beep(){
   }catch(_){}
 }
 
-// ============================================================ BLE (Web Bluetooth)
+// ============================================================ BLE
 async function connectBLE(){
-  // 1) must be a secure context (https or localhost)
+  if (IS_NATIVE) return connectBLE_native();
+  // ---- Web Bluetooth (browser / PWA) ----
   if (!window.isSecureContext){
     alert("⚠️ Bluetooth needs a secure page.\nOpen the https://…onrender.com address (not an http:// or IP address).");
     return;
   }
-  // 2) browser must actually expose Web Bluetooth
   if (!navigator.bluetooth){
     alert("⚠️ This browser can't use Bluetooth.\n\n"
       + "• iPhone/iPad: Safari & Chrome don't support it — install the free \"Bluefy\" browser and open the site there.\n"
@@ -1187,14 +1306,39 @@ async function connectBLE(){
   }catch(e){
     setBlePill(false);
     if (e.name === "NotFoundError"){
-      // chooser closed with nothing picked — usually nothing was found
       alert("No device selected / none found.\n\nChecklist:\n"
         + "• Arduino powered & Serial shows \"advertising as 'Norisugoshi'\"\n"
         + "• Phone Bluetooth is ON\n"
-        + "• Android only: turn ON Location, and allow this browser's \"Nearby devices\"/Location permission (Android needs it to scan BLE)");
+        + "• Android only: turn ON Location, and allow this browser's \"Nearby devices\"/Location permission");
     } else {
       alert("BLE connect failed: " + e.name + " — " + e.message);
     }
+  }
+}
+
+async function connectBLE_native(){
+  // ---- @capacitor-community/bluetooth-le (native Android) ----
+  if (!_BLE){ alert("BLE plugin not loaded — run npm install + npx cap sync and rebuild."); return; }
+  try {
+    setBlePill(false, "scanning…");
+    await _BLE.initialize();
+    const result = await _BLE.requestDevice({ services:[BLE_SERVICE] });
+    const deviceId = result?.device?.deviceId ?? result?.deviceId;
+    if (!deviceId) throw new Error("No device returned from requestDevice");
+    await _BLE.connect({ deviceId });
+    S.ble.deviceId = deviceId;
+    // listen for disconnect
+    _BLE.addListener("onDisconnected", (ev) => {
+      if (ev?.deviceId === deviceId){ S.ble.deviceId=null; setBlePill(false); }
+    }).catch(()=>{});
+    setBlePill(true, result?.device?.name ?? result?.name ?? "device");
+    $("btnBleTest").disabled = false;
+  } catch(e) {
+    setBlePill(false);
+    alert("BLE connect failed: " + e.message + "\n\nChecklist:\n"
+      + "• Arduino powered & advertising as 'Norisugoshi'\n"
+      + "• Phone Bluetooth ON\n"
+      + "• Granted 'Nearby devices' permission when prompted");
   }
 }
 function setBlePill(on,name){
@@ -1204,6 +1348,15 @@ function setBlePill(on,name){
 }
 // Write one command byte to the device (0x01 = alert/on, 0x00 = clear/off).
 async function bleSend(value){
+  if (IS_NATIVE && _BLE && S.ble.deviceId){
+    try {
+      // Capacitor bridge transfers binary as base64
+      const b64 = btoa(String.fromCharCode(value));
+      await _BLE.write({ deviceId:S.ble.deviceId, service:BLE_SERVICE, characteristic:BLE_CMD, value:b64 });
+    } catch(e){ console.warn("BLE write failed", e.message); }
+    return;
+  }
+  // Web Bluetooth fallback
   if (!S.ble.char) return;
   try { await S.ble.char.writeValue(Uint8Array.of(value)); }
   catch(e){ console.warn("BLE write failed", e.message); }
@@ -1266,7 +1419,10 @@ function exportLog(){
   document.body.appendChild(a); a.click(); a.remove();
 }
 function clearLog(){
-  if (!confirm("Delete all logged response times on this device?")) return;
+  const n = loadLog().length;
+  if (!n){ alert("削除する記録がありません — no records to clear."); return; }
+  // strong, count-aware confirmation so a participant can't wipe the data with a stray tap
+  if (!confirm(`⚠️ 記録 ${n} 件をすべて削除します。元に戻せません。\n\nDelete ALL ${n} saved records? This CANNOT be undone.`)) return;
   try { localStorage.removeItem(LOG_KEY); } catch(_){}
   S.times = []; updateExportBtn();
 }
