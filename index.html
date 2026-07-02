@@ -959,13 +959,18 @@ function render(t){
   const fromId = t["odpt:fromStation"], toId = t["odpt:toStation"];
   const destBound = (t["odpt:destinationStation"]||[])[0];
   const delay = t["odpt:delay"]||0;
+  // Some lines (e.g. the Toden Arakawa tram) don't carry odpt:delay at all. Distinguish
+  // "no live delay data" from a real "on time (delay=0)" so we don't claim what we don't know.
+  const hasDelay = ("odpt:delay" in t);
 
   const isLocal = /\.Local$/.test(t["odpt:trainType"]||"");
   $("tNo").innerHTML = `${S.trainNo} <span class="badge ${isLocal?'gray':'amber'}" style="font-size:10px;padding:1px 7px">${isLocal?'各停 Local':'⚡ '+trainTypeLabel(t)}</span>`;
   $("tPos").textContent = toId ? `${stationTitle(S.line,fromId)} → ${stationTitle(S.line,toId)}`
                                : `${stationTitle(S.line,fromId)} 停車中`;
   $("tDest").textContent = destBound ? stationTitle(S.line,destBound) : tail(t["odpt:railDirection"]);
-  $("tDelay").textContent = delay>0 ? `+${delay}s (${Math.round(delay/60)}分)` : "定刻 on time";
+  $("tDelay").textContent = delay>0 ? `+${delay}s (${Math.round(delay/60)}分)`
+                          : hasDelay ? "定刻 on time"
+                          : "遅延情報なし — no live delay";
 
   // current node + travel direction, then stops to destination — counting only the
   // stops THIS train actually makes (express trains skip stations; countStopsTo handles it)
@@ -993,6 +998,7 @@ function render(t){
     // under-reports as 0), don't show a confusing past clock-time — show "overdue/soon".
     $("etaNow").textContent = etaIsPast(etaMin)
       ? "🕒 まもなく（遅延）"
+      : !hasDelay ? fmtHM(etaMin) + " 予定"   // no live delay data → it's the timetable estimate
       : fmtHM(etaMin) + (dmin>0 ? ` ⚠️ +${dmin}分` : " ✓ 定刻");
   } else {
     $("etaSched").textContent = "—"; $("etaNow").textContent = "—";
@@ -1192,6 +1198,7 @@ function ensureSignaled(stops){
     line: tail(S.line), train: S.trainNo,
     trainType: tail((S.train && S.train["odpt:trainType"]) || "") || "Local",
     dest: tail(S.destId), alertStopsBefore: S.alertN, stopsAtAlert: stops,
+    alertSource: "js",          // fired by the foreground JS render loop (native adds "poll"/"backstop")
     delaySec: (S.train && S.train["odpt:delay"]) || 0,
     ble: !!(S.ble.char || S.ble.deviceId),   // native uses deviceId, web uses char
   };
@@ -1375,15 +1382,16 @@ function startTimer(){
   clearInterval(S.timerId);
   S.timerId = setInterval(()=>{ $("timerVal").textContent = ((Date.now()-S.t0)/1000).toFixed(1)+"s"; },100);
 }
-function stopTimer(){
+function stopTimer(atMs){
   // "I'm awake" — acknowledge the alert: silence the device and dismiss the banner.
+  // atMs (optional): actual acknowledge time — used by the native notification-action path.
   bleSend(BLE_CLEAR);                       // turn the LED/haptic OFF
   S.alertAcked = true;                      // don't re-fire this approach
   $("alertBanner").classList.remove("show");
 
   if (!S.t0) return;                        // (only the timer part needs an active alert)
   clearInterval(S.timerId);
-  const sec = ((Date.now()-S.t0)/1000);
+  const sec = (((typeof atMs === "number" ? atMs : Date.now())-S.t0)/1000);
   S.times.push(sec);
   const avg = S.times.reduce((a,b)=>a+b,0)/S.times.length;
 
@@ -1409,7 +1417,7 @@ function updateExportBtn(){
 function exportLog(){
   const log = loadLog();
   if (!log.length){ alert("No response times logged yet."); return; }
-  const cols = ["awakeAt","responseSec","line","train","trainType","dest","alertStopsBefore","stopsAtAlert","delaySec","ble"];
+  const cols = ["awakeAt","responseSec","line","train","trainType","dest","alertStopsBefore","stopsAtAlert","alertSource","delaySec","ble"];
   const csv = [cols.join(",")]
     .concat(log.map(r => cols.map(c => { const v = r[c]; return /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : (v ?? ""); }).join(",")))
     .join("\r\n");
