@@ -15,6 +15,12 @@
     const pref = localStorage.getItem("norisugoshi_theme") || "auto";
     const dark = pref === "dark" || (pref === "auto" && matchMedia("(prefers-color-scheme: dark)").matches);
     document.documentElement.dataset.theme = dark ? "dark" : "light";
+    // Language bootstrap — set before first paint so the UI never flashes the wrong language.
+    // Preference: "auto" (follow device locale, the default) | "ja" | "en".
+    const lp = localStorage.getItem("norisugoshi_lang") || "auto";
+    const lang = lp === "ja" || lp === "en" ? lp
+               : ((navigator.language || "en").toLowerCase().startsWith("ja") ? "ja" : "en");
+    document.documentElement.dataset.lang = lang;
   })();
 </script>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -61,10 +67,18 @@
   :focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
   @media (prefers-reduced-motion: reduce){ *,*::before,*::after{ animation:none!important; transition:none!important; } }
 
-  /* signage lockup: JA primary, EN caption beneath */
-  .lk .ja{ display:block; font-size:15px; font-weight:650; line-height:1.3; }
-  .lk .en{ display:block; font-size:10px; font-weight:600; letter-spacing:.09em; text-transform:uppercase;
-           color:var(--ink2); margin-top:2px; }
+  /* signage lockup — single language: only the active language's span shows (see toggle below) */
+  .lk .ja, .lk .en{ display:block; font-size:15px; font-weight:650; line-height:1.3; }
+
+  /* ── language toggle: show only the chosen language, hide the other everywhere ── */
+  html[data-lang="ja"] .en{ display:none !important; }
+  html[data-lang="en"] .ja{ display:none !important; }
+  /* the .en spans were styled as small captions for the old bilingual look; when English is
+     the active language they must read as primary text, not a caption */
+  html[data-lang="en"] .lk .en{ font-size:15px; font-weight:650; letter-spacing:normal; text-transform:none; color:inherit; margin-top:0; }
+  html[data-lang="en"] .header .lk .en{ font-size:16px; font-weight:700; }
+  html[data-lang="en"] .btn .en{ font-size:inherit; font-weight:inherit; letter-spacing:normal; text-transform:none; opacity:1; }
+  html[data-lang="en"] .sec-t .en{ font-size:inherit; font-weight:inherit; letter-spacing:normal; text-transform:none; color:inherit; margin-left:0; }
 
   .header { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
   .header .mark{ width:26px; height:26px; color:var(--accent); flex-shrink:0; }
@@ -76,6 +90,8 @@
          background:var(--surface); color:var(--ink2); display:flex; align-items:center; justify-content:center; cursor:pointer; }
   .gear:active{ transform:scale(.96); }
   .header .live-dot{ margin-left:auto; } .header .live-dot + .gear{ margin-left:0; }
+  .gear.spinning svg{ animation: spin360 .8s linear infinite; }
+  @keyframes spin360{ to{ transform: rotate(360deg); } }
 
   .card { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg);
           padding:15px 16px; margin-bottom:12px; }
@@ -112,7 +128,7 @@
   .train-opt.sel  { border-color:var(--accent); background:var(--warn-bg); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
   .train-no { font-weight:700; font-size:13.5px; background:var(--ink); color:var(--bg);
               border-radius:7px; padding:4px 9px; font-variant-numeric:tabular-nums; flex-shrink:0; }
-  .train-meta { font-size:13px; line-height:1.45; }
+  .train-meta { font-size:13px; line-height:1.45; flex:1; min-width:0; overflow-wrap:break-word; word-break:break-word; }
   .train-meta .pos { font-weight:600; }
   .train-meta .sub { color:var(--ink2); font-size:12px; }
 
@@ -133,6 +149,19 @@
   .dest-row.here   { font-weight:700; }
   .dest-row.passed { opacity:.45; }
 
+  /* Ride history (Settings) — newest first, scrollable so "unlimited" stays tidy */
+  .ride-list { display:flex; flex-direction:column; gap:6px; max-height:260px; overflow-y:auto; }
+  .ride-list .empty { color:var(--ink2); font-size:12px; text-align:left; padding:4px 2px; }
+  .ride-row { border:1px solid var(--line); border-radius:var(--r-sm); padding:8px 10px; background:var(--surface2); }
+  .ride-row .r-top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+  .ride-row .r-line { font-weight:700; font-size:12.5px; min-width:0; overflow-wrap:break-word; word-break:break-word; }
+  .ride-row .r-when { color:var(--ink2); font-size:10.5px; flex-shrink:0; font-variant-numeric:tabular-nums; }
+  .ride-row .r-route { font-size:12.5px; margin-top:2px; overflow-wrap:break-word; word-break:break-word; }
+  .ride-row .r-meta { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; font-size:10.5px; color:var(--ink2); }
+  .ride-row .r-tag { padding:1px 7px; border-radius:999px; background:var(--surface); }
+  .ride-row .r-tag.ok  { color:var(--ok);   background:var(--ok-bg); }
+  .ride-row .r-tag.miss{ color:var(--danger);background:var(--danger-bg); }
+
   .badge { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:700; }
   .badge.green{ background:var(--ok-bg); color:var(--ok); }   .badge.amber{ background:var(--warn-bg); color:var(--warn-t); }
   .badge.red{ background:var(--danger-bg); color:var(--danger); } .badge.gray{ background:var(--surface2); color:var(--ink2); }
@@ -141,7 +170,7 @@
   .status-card { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); padding:6px 16px; margin-bottom:12px; }
   .status-card .srow { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); font-size:13px; }
   .status-card .srow:last-child{ border-bottom:none; }
-  .status-card .sk{ color:var(--ink2); flex-shrink:0; } .status-card .sv{ font-weight:700; text-align:right; }
+  .status-card .sk{ color:var(--ink2); flex-shrink:0; } .status-card .sv{ font-weight:700; text-align:right; min-width:0; overflow-wrap:break-word; word-break:break-word; }
 
   /* ── LED departure board — the signature ── */
   .board { background:var(--board); border:1px solid var(--board-line); border-radius:var(--r-lg);
@@ -158,7 +187,9 @@
   @keyframes ledPulse{ 0%,100%{opacity:1} 50%{opacity:.55} }
   .progress-bar { height:3px; background:#1C2530; border-radius:2px; overflow:hidden; margin:10px 0 6px; }
   .progress-fill{ height:100%; background:var(--led); border-radius:2px; transition:width .6s ease; }
-  .progress-labels{ display:flex; justify-content:space-between; font-size:11px; color:#8A93A3; }
+  .progress-labels{ display:flex; justify-content:space-between; gap:10px; font-size:11px; color:#8A93A3; }
+  .progress-labels span{ min-width:0; max-width:47%; overflow-wrap:break-word; word-break:break-word; }
+  .progress-labels span:last-child{ text-align:right; }
 
   .stops { list-style:none; margin-top:8px; }
   .stops li { display:flex; align-items:center; gap:11px; padding:4px 0; font-size:13px; color:var(--ink2); position:relative; }
@@ -242,6 +273,11 @@
     </svg>
     <h1 class="lk"><span class="ja">乗り過ごし防止</span><span class="en">Train Tracker</span></h1>
     <div class="live-dot" id="liveDot"></div>
+    <button class="gear" id="btnRefreshAll" onclick="refreshAll()" aria-label="更新 Refresh" title="更新 Refresh">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>
+      </svg>
+    </button>
     <button class="gear" id="btnGear" onclick="openSheet()" aria-label="設定 Settings">
       <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="3"/>
@@ -262,8 +298,8 @@
         <div class="step-title lk"><span class="ja">路線</span><span class="en">Your line</span></div>
         <div class="step-sub" id="s1sub">loading…</div>
       </div>
-      <label class="fld" for="selLine">運行中の路線のみ表示されます</label>
-      <select id="selLine"><option value="">— 読み込み中 loading —</option></select>
+      <label class="fld" for="selLine"><span class="ja">運行中の路線のみ表示されます</span><span class="en">Only lines currently running are shown</span></label>
+      <select id="selLine"><option value="">— …</option></select>
     </div>
 
     <!-- STEP 2 — which train -->
@@ -272,9 +308,8 @@
         <div class="step-num" id="s2">2</div>
         <div class="step-title lk"><span class="ja">列車</span><span class="en">Which train</span></div>
         <div class="step-sub" id="s2sub"></div>
-        <button class="btn ghost icon-btn" id="btnTrainRefresh" style="margin-left:8px" onclick="refreshTrains()" title="更新 refresh">↻</button>
       </div>
-      <label class="fld">車内の号車表示か、行先・現在地で選んでください</label>
+      <label class="fld"><span class="ja">車内の号車表示か、行先・現在地で選んでください</span><span class="en">Pick by the car-number shown onboard, or by destination / current position</span></label>
       <div class="train-list" id="trainList"></div>
     </div>
 
@@ -285,38 +320,43 @@
         <div class="step-title lk"><span class="ja">降車駅</span><span class="en">Get off at</span></div>
       </div>
       <div class="dest-legend">
-        <span><i class="leg-here"></i>現在地 here</span>
-        <span><i style="width:32px;border-radius:3px;background:linear-gradient(90deg,var(--here),var(--danger))"></i>この先の駅をタップ tap a stop ahead</span>
+        <span><i class="leg-here"></i><span class="ja">現在地</span><span class="en">here</span></span>
+        <span><i style="width:32px;border-radius:3px;background:linear-gradient(90deg,var(--here),var(--danger))"></i><span class="ja">この先の駅をタップ</span><span class="en">tap a stop ahead</span></span>
       </div>
       <div class="dest-list" id="destList"></div>
       <p class="hint" id="destNote" style="text-align:left; display:none; margin-top:.55rem;"></p>
       <div class="field" style="margin-top:.85rem; max-width:60%">
-        <label class="fld" for="selAlert">通知タイミング — alert before</label>
+        <label class="fld" for="selAlert"><span class="ja">通知タイミング（通過駅も数えます）</span><span class="en">Alert before (pass-through stations counted)</span></label>
         <select id="selAlert">
-          <option value="1">1駅前 · 1 stop</option>
-          <option value="2" selected>2駅前 · 2 stops</option>
-          <option value="3">3駅前 · 3 stops</option>
+          <option value="1">1駅前</option>
+          <option value="2" selected>2駅前</option>
+          <option value="3">3駅前</option>
         </select>
       </div>
       <div class="ble-line">
-        <span>リストバンド (BLE)</span>
-        <span class="ble-pill" id="blePill">未接続</span>
-        <button class="btn ghost icon-btn" style="margin-left:auto" onclick="connectBLE()">接続 Connect</button>
-        <button class="btn ghost icon-btn" id="btnBleTest" onclick="bleTest()" disabled>テスト Test</button>
+        <span><span class="ja">リストバンド (BLE)</span><span class="en">Wristband (BLE)</span></span>
+        <span class="ble-pill" id="blePill"><span class="ja">未接続</span><span class="en">Not connected</span></span>
+        <button class="btn ghost icon-btn" style="margin-left:auto" onclick="connectBLE()"><span class="ja">接続</span><span class="en">Connect</span></button>
+        <button class="btn ghost icon-btn" id="btnBleTest" onclick="bleTest()" disabled><span class="ja">テスト</span><span class="en">Test</span></button>
       </div>
       <details class="info">
-        <summary>接続できないとき — connection help</summary>
-        <div class="body">
+        <summary><span class="ja">接続できないとき</span><span class="en">Connection help</span></summary>
+        <div class="body ja">
           <b>Android:</b> スキャンには「位置情報」を ON に（Bluetooth の仕様で、位置情報は使いません）。<br>
           <b>Brave:</b> <code>brave://flags/#brave-web-bluetooth-api</code> を有効に。<br>
           <b>iPhone:</b> Safari/Chrome は非対応 — 無料の <b>Bluefy</b> ブラウザで開いてください。
         </div>
+        <div class="body en">
+          <b>Android:</b> turn <b>Location</b> ON to scan (a Bluetooth requirement — no location is used).<br>
+          <b>Brave:</b> enable <code>brave://flags/#brave-web-bluetooth-api</code>.<br>
+          <b>iPhone:</b> Safari/Chrome aren’t supported — open in the free <b>Bluefy</b> browser.
+        </div>
       </details>
     </div>
 
-    <button class="btn primary" id="btnStart" onclick="startTracking()" disabled><span>追跡開始</span><span class="en">Start tracking</span></button>
+    <button class="btn primary" id="btnStart" onclick="startTracking()" disabled><span class="ja">追跡開始</span><span class="en">Start tracking</span></button>
 
-    <p class="hint">Data: ODPT 公共交通オープンデータ · 更新 30–60秒</p>
+    <p class="hint"><span class="ja">データ: ODPT 公共交通オープンデータ · 更新 30–60秒</span><span class="en">Data: ODPT Open Data · updates every 30–60s</span></p>
   </div>
 
   <!-- ===================== TRACKING ===================== -->
@@ -334,52 +374,52 @@
     </div>
 
     <div class="timer" id="timer">
-      <div class="tl">反応時間 · Response time</div>
+      <div class="tl"><span class="ja">反応時間</span><span class="en">Response time</span></div>
       <div class="tv" id="timerVal">0.0s</div>
-      <button class="btn primary mt" onclick="stopTimer()"><span>起きた！</span><span class="en">I'm awake</span></button>
+      <button class="btn primary mt" onclick="stopTimer()"><span class="ja">起きた！</span><span class="en">I'm awake</span></button>
       <div class="tr" id="timerRes"></div>
     </div>
 
     <!-- LED departure board — the signature -->
     <div class="board">
-      <div class="b-cap"><span>のりすごし</span><span>NORISUGOSHI</span></div>
+      <div class="b-cap"><span><span class="ja">のりすごし</span><span class="en">Norisugoshi</span></span><span>NORISUGOSHI</span></div>
       <div class="countdown" id="countdown">—</div>
       <div class="progress-bar"><div class="progress-fill" id="pFill" style="width:0%"></div></div>
       <div class="progress-labels"><span id="pFrom">—</span><span id="pTo">—</span></div>
     </div>
 
     <div class="status-card">
-      <div class="srow"><span class="sk">列車 Train</span><span class="sv" id="tNo">—</span></div>
-      <div class="srow"><span class="sk">現在地 Position</span><span class="sv" id="tPos">—</span></div>
-      <div class="srow"><span class="sk">行先 Bound for</span><span class="sv" id="tDest">—</span></div>
-      <div class="srow"><span class="sk">到着予定 Scheduled</span><span class="sv" id="etaSched">—</span></div>
-      <div class="srow"><span class="sk">予測 ETA</span><span class="sv" id="etaNow">—</span></div>
-      <div class="srow"><span class="sk">遅延 Delay</span><span class="sv" id="tDelay">—</span></div>
-      <div class="srow"><span class="sk">状態 Status</span><span class="sv"><span class="badge gray" id="tStatus">…</span></span></div>
+      <div class="srow"><span class="sk"><span class="ja">列車</span><span class="en">Train</span></span><span class="sv" id="tNo">—</span></div>
+      <div class="srow"><span class="sk"><span class="ja">現在地</span><span class="en">Position</span></span><span class="sv" id="tPos">—</span></div>
+      <div class="srow"><span class="sk"><span class="ja">行先</span><span class="en">Bound for</span></span><span class="sv" id="tDest">—</span></div>
+      <div class="srow"><span class="sk"><span class="ja">到着予定</span><span class="en">Scheduled</span></span><span class="sv" id="etaSched">—</span></div>
+      <div class="srow"><span class="sk"><span class="ja">予測</span><span class="en">ETA</span></span><span class="sv" id="etaNow">—</span></div>
+      <div class="srow"><span class="sk"><span class="ja">遅延</span><span class="en">Delay</span></span><span class="sv" id="tDelay">—</span></div>
+      <div class="srow"><span class="sk"><span class="ja">状態</span><span class="en">Status</span></span><span class="sv"><span class="badge gray" id="tStatus">…</span></span></div>
     </div>
 
     <div class="card">
       <div class="step-title lk" style="margin-bottom:.4rem"><span class="ja">停車駅</span><span class="en">Stops</span></div>
       <ul class="stops" id="stopsList"></ul>
       <details class="info">
-        <summary>色の見かた — what the colors mean</summary>
+        <summary><span class="ja">色の見かた</span><span class="en">What the colors mean</span></summary>
         <div class="body">
           <span class="stops-legend" style="margin:0">
-            <span><i style="background:var(--here)"></i>現在地 here</span>
-            <span><i style="width:32px;border-radius:3px;background:linear-gradient(90deg,var(--here),var(--danger))"></i>近づくほど赤 closer</span>
-            <span><i style="background:var(--danger)"></i>降車 get off</span>
-            <span><i style="background:var(--line)"></i>通過 passed</span>
+            <span><i style="background:var(--here)"></i><span class="ja">現在地</span><span class="en">here</span></span>
+            <span><i style="width:32px;border-radius:3px;background:linear-gradient(90deg,var(--here),var(--danger))"></i><span class="ja">近づくほど赤</span><span class="en">closer</span></span>
+            <span><i style="background:var(--danger)"></i><span class="ja">降車</span><span class="en">get off</span></span>
+            <span><i style="background:var(--line)"></i><span class="ja">通過</span><span class="en">passed</span></span>
           </span>
         </div>
       </details>
     </div>
 
     <p class="hint" id="refreshHint"></p>
-    <p class="hint" id="screenNote">画面は開いたままに — keep this screen open</p>
-    <button class="btn ghost mt" id="btnSwitch" onclick="toggleAlts()">別の列車に変更 — switch train</button>
+    <p class="hint" id="screenNote"><span class="ja">画面は開いたままに</span><span class="en">Keep this screen open</span></p>
+    <button class="btn ghost mt" id="btnSwitch" onclick="toggleAlts()"><span class="ja">別の列車に変更</span><span class="en">Switch train</span></button>
     <div class="btn-row mt">
-      <button class="btn ghost" onclick="poll()" id="btnRefresh">↻ 更新</button>
-      <button class="btn danger" onclick="stopTracking()">✕ 停止 Stop</button>
+      <button class="btn ghost" onclick="poll()" id="btnRefresh">↻ <span class="ja">更新</span><span class="en">Refresh</span></button>
+      <button class="btn danger" onclick="stopTracking()">✕ <span class="ja">停止</span><span class="en">Stop</span></button>
     </div>
   </div>
 
@@ -390,44 +430,66 @@
     <h2 class="lk"><span class="ja">設定</span><span class="en">Settings</span></h2>
 
     <div class="sec">
-      <div class="sec-t">テーマ<span class="en">Theme</span></div>
-      <div class="seg" id="segTheme">
-        <button data-pref="auto" onclick="setThemePref('auto')">自動</button>
-        <button data-pref="light" onclick="setThemePref('light')">ライト</button>
-        <button data-pref="dark" onclick="setThemePref('dark')">ダーク</button>
+      <div class="sec-t"><span class="ja">言語</span><span class="en">Language</span></div>
+      <div class="seg" id="segLang">
+        <button data-pref="auto" onclick="setLangPref('auto')"><span class="ja">自動</span><span class="en">Auto</span></button>
+        <button data-pref="ja" onclick="setLangPref('ja')">日本語</button>
+        <button data-pref="en" onclick="setLangPref('en')">English</button>
       </div>
     </div>
 
     <div class="sec">
-      <div class="sec-t">振動の強さ<span class="en">Haptic strength</span></div>
+      <div class="sec-t"><span class="ja">テーマ</span><span class="en">Theme</span></div>
+      <div class="seg" id="segTheme">
+        <button data-pref="auto" onclick="setThemePref('auto')"><span class="ja">自動</span><span class="en">Auto</span></button>
+        <button data-pref="light" onclick="setThemePref('light')"><span class="ja">ライト</span><span class="en">Light</span></button>
+        <button data-pref="dark" onclick="setThemePref('dark')"><span class="ja">ダーク</span><span class="en">Dark</span></button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t"><span class="ja">振動の強さ</span><span class="en">Haptic strength</span></div>
       <div class="slider-row">
         <input type="range" id="hapRange" min="1" max="10" step="1" value="7"
                oninput="setHapticStrength(this.value)" aria-label="振動の強さ 1-10">
         <output id="hapVal" for="hapRange">7</output>
-        <button class="btn ghost icon-btn" onclick="hapticPreview()">試す</button>
+        <button class="btn ghost icon-btn" onclick="hapticPreview()"><span class="ja">試す</span><span class="en">Test</span></button>
       </div>
-      <p class="hint" style="text-align:left;margin-top:8px">リストバンド接続時はデバイスが、未接続時はスマホが振動します。</p>
+      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">リストバンド接続時はデバイスが、未接続時はスマホが振動します。</span><span class="en">Buzzes the wristband if connected, otherwise the phone.</span></p>
     </div>
 
     <div class="sec">
-      <div class="sec-t">実験データ<span class="en">Response-time log</span></div>
+      <div class="sec-t"><span class="ja">履歴</span><span class="en">Ride history</span></div>
+      <div class="ride-list" id="rideList"></div>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn ghost" id="btnClearRides" onclick="clearRideHistory()"><span class="ja">履歴を消去</span><span class="en">Clear history</span></button>
+      </div>
+      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">追跡を終えるたびに、その乗車をこの端末に記録します（新しい順）。</span><span class="en">Each finished ride is saved on this device (newest first).</span></p>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t"><span class="ja">実験データ</span><span class="en">Response-time log</span></div>
       <div class="btn-row">
         <button class="btn ghost" id="btnExport" onclick="exportLog()" disabled>CSV 書き出し (0)</button>
-        <button class="btn ghost" style="max-width:38%" onclick="clearLog()">消去</button>
+        <button class="btn ghost" style="max-width:38%" onclick="clearLog()"><span class="ja">消去</span><span class="en">Clear</span></button>
       </div>
-      <p class="hint" style="text-align:left;margin-top:8px">「起きた！」のタップごとに反応時間をこの端末に記録します。</p>
+      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">「起きた！」のタップごとに反応時間をこの端末に記録します。</span><span class="en">Each “I’m awake” tap logs your response time on this device.</span></p>
     </div>
 
     <div class="sec">
-      <div class="sec-t">データについて<span class="en">Data &amp; credits</span></div>
-      <p class="hint" style="text-align:left;margin:0;line-height:1.7">
+      <div class="sec-t"><span class="ja">データについて</span><span class="en">Data &amp; credits</span></div>
+      <p class="hint ja" style="text-align:left;margin:0;line-height:1.7">
         本アプリは<b>公共交通オープンデータセンター</b>および <b>ODPTチャレンジ2026</b> で提供される
         データを利用しています。データは各公共交通事業者の提供情報に基づいていますが、
         必ずしも正確・完全なものとは限りません（リアルタイム性・運行の正確性は保証されません）。
-        本アプリに関するお問い合わせは、交通事業者ではなく開発者（拓殖大学 卒業研究）までお願いします。<br>
-        <span style="opacity:.8">This app uses data from the Public Transportation Open Data Center /
-        ODPT Challenge 2026. Data accuracy and completeness are not guaranteed. Please direct
-        inquiries to the developer, not to the transport operators.</span>
+        本アプリに関するお問い合わせは、交通事業者ではなく開発者（拓殖大学 卒業研究）までお願いします。
+      </p>
+      <p class="hint en" style="text-align:left;margin:0;line-height:1.7">
+        This app uses data from the <b>Public Transportation Open Data Center</b> /
+        <b>ODPT Challenge 2026</b>. Data is based on information provided by each transit operator
+        and is not guaranteed to be accurate or complete (real-time accuracy is not guaranteed).
+        For inquiries about this app, please contact the developer (Takushoku University
+        graduation research), not the transit operators.
       </p>
     </div>
   </div>
@@ -437,6 +499,7 @@
 // ============================================================ CONFIG
 const API = "";                       // same origin as the proxy
 const POLL_MS = 25000;                // auto refresh every 25s
+const SESSION_MAX_MS = 3*60*60*1000;  // hard 3h auto-stop (parity with the native service)
 // BLE — Nordic UART service (common on ESP32 firmware). Change to match your device.
 // These UUIDs MUST match the Arduino sketch (arduino/norisugoshi_ble/).
 const BLE_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
@@ -468,10 +531,16 @@ const S = {
   lastSeen: null,      // last known data for our train
   altOpen: false,      // user manually opened the switch-train picker
   ble: { device: null, char: null, deviceId: null },
+  sessionStart: 0,     // Date.now() at 追跡開始 — the JS 3h auto-stop anchor
+  rideFrom: "",        // boarding station title, captured at 追跡開始 (train moves during the ride)
+  rideArrived: false,  // did this ride reach the destination? (set in arrived())
+  lastResponseSec: null, // most recent 起きた response time this ride (for the history row)
   // response-time experiment
   t0: null, timerId: null, times: [], alertCtx: null,
 };
 const LOG_KEY = "norisugoshi_response_log";   // persisted experiment records (localStorage)
+const RIDE_KEY = "norisugoshi_ride_history";  // user-facing ride history (separate from the research CSV)
+const RIDE_MAX = 20;                           // keep the most recent N rides (oldest drop off)
 
 window.S = S; // exposed for debugging
 // ============================================================ HELPERS
@@ -492,7 +561,56 @@ function applyTheme(){
 function setThemePref(p){ localStorage.setItem(THEME_KEY, p); applyTheme(); }
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (themePref() === "auto") applyTheme(); });
 
-function openSheet(){ $("sheetOvl").classList.add("show"); $("sheet").classList.add("show"); }
+// ============================================================ LANGUAGE (i18n)
+// UI language is single (not bilingual): "auto" follows the device locale, else "ja"/"en".
+// Static text lives in dual <span class="ja">/<span class="en"> pairs toggled by CSS; dynamic
+// JS strings pick their language via tt(ja,en). The <html data-lang> attribute drives both.
+const LANG_KEY = "norisugoshi_lang";            // "auto" | "ja" | "en" (bootstrap script reads this too)
+function langPref(){ return localStorage.getItem(LANG_KEY) || "auto"; }
+function resolveLang(){
+  const p = langPref();
+  if (p === "ja" || p === "en") return p;
+  return (navigator.language || "en").toLowerCase().startsWith("ja") ? "ja" : "en";
+}
+// current active language — the single source of truth for tt()
+function LANG(){ return document.documentElement.dataset.lang === "en" ? "en" : "ja"; }
+// pick the right string for the active language (used by every dynamic JS string)
+function tt(ja, en){ return LANG() === "en" ? en : ja; }
+function applyLang(){
+  const lang = resolveLang();
+  document.documentElement.dataset.lang = lang;
+  document.documentElement.lang = lang;
+  document.querySelectorAll("#segLang button").forEach(b => b.classList.toggle("on", b.dataset.pref === langPref()));
+  applyLangDynamic();     // <option> labels, placeholders/aria, and any live view text
+}
+function setLangPref(p){ localStorage.setItem(LANG_KEY, p); applyLang(); }
+// Re-apply language to things CSS can't reach: <select> option text, input attributes, and
+// the currently-rendered dynamic view (status card, countdown, hints) if tracking/selected.
+function applyLangDynamic(){
+  // static <option>s that carry a fixed label (dynamic option lists rebuild themselves)
+  const alertSel = $("selAlert");
+  if (alertSel) [...alertSel.options].forEach(o => {
+    const n = o.value;
+    o.textContent = tt(`${n}駅前`, `${n} station${n==="1"?"":"s"} before`);
+  });
+  // the line dropdown: placeholder + each line's label (rebuilt from the data-* it was built with)
+  const lineSel = $("selLine");
+  if (lineSel) [...lineSel.options].forEach(o => {
+    if (!o.value){ o.textContent = tt("— 路線を選ぶ —", "— select a line —"); return; }
+    if (o.dataset.ja) o.textContent = `${tt(o.dataset.ja, o.dataset.en || o.dataset.ja)} · ${o.dataset.n}${tt("本", " trains")}`;
+  });
+  // re-render a live tracking view / open picker so its dynamic strings switch language too
+  try {
+    if (S.tracking && S.train) render(S.train);
+    else if (S.trains && S.trains.length && $("card2").style.display !== "none") renderTrainPicker();
+    if (S.destId || (S.train && $("card3") && $("card3").style.display !== "none")) buildDestList();
+  } catch(_){}
+  // step-1 count label ("N lines") — set once by init(), so relabel it here on a lang switch
+  if (typeof S.lineCount === "number") $("s1sub").textContent = tt(`${S.lineCount} 路線`, `${S.lineCount} lines`);
+  updateExportBtn(); renderRideHistory();
+}
+
+function openSheet(){ renderRideHistory(); $("sheetOvl").classList.add("show"); $("sheet").classList.add("show"); }
 function closeSheet(){ $("sheetOvl").classList.remove("show"); $("sheet").classList.remove("show"); }
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
 
@@ -552,9 +670,12 @@ function onReady(){
   updateExportBtn();                                   // show how many records are saved
   if (IS_NATIVE) $("screenNote").style.display = "none"; // native won't be paused by backgrounding the browser
   applyTheme();                                        // sync the settings segmented control + meta theme-color
+  applyLang();                                         // sync the language control + option/attr labels
   $("hapRange").value = hapticStrength();
   $("hapVal").textContent = hapticStrength();
 }
+// follow the device locale live while the preference is "auto"
+window.addEventListener("languagechange", () => { if (langPref() === "auto") applyLang(); });
 async function init(){
   onReady();
   try {
@@ -598,16 +719,18 @@ async function init(){
 
     const sel = $("selLine");
     if (alive.length === 0){
-      sel.innerHTML = '<option value="">現在運行中の路線がありません — no lines running</option>';
-      $("s1sub").textContent = "0 lines";
+      sel.innerHTML = `<option value="">${tt("現在運行中の路線がありません", "No lines currently running")}</option>`;
+      S.lineCount = 0; $("s1sub").textContent = tt("0 路線", "0 lines");
       return;
     }
-    sel.innerHTML = '<option value="">— 路線を選ぶ select —</option>' +
+    // store ja/en/count as data-* so applyLangDynamic can relabel on a language switch
+    sel.innerHTML = `<option value="">${tt("— 路線を選ぶ —", "— select a line —")}</option>` +
       alive.map(rw => {
         const r = S.railways[rw];
-        return `<option value="${rw}">${r.ja} ${r.en} · ${counts[rw]}本</option>`;
+        return `<option value="${rw}" data-ja="${r.ja}" data-en="${r.en}" data-n="${counts[rw]}">`
+             + `${tt(r.ja, r.en)} · ${counts[rw]}${tt("本", " trains")}</option>`;
       }).join("");
-    $("s1sub").textContent = `${alive.length} lines`;
+    S.lineCount = alive.length; $("s1sub").textContent = tt(`${alive.length} 路線`, `${alive.length} lines`);
   } catch(e){
     showErr("Could not reach the proxy. Run  node server.js  and open http://localhost:3000  (" + e.message + ")");
     $("s1sub").textContent = "offline";
@@ -639,8 +762,8 @@ async function onLine(){
 
 function renderTrainPicker(){
   const r = S.railways[S.line];
-  $("s2sub").textContent = S.trains.length + " trains";
-  if (!S.trains.length){ $("trainList").innerHTML = '<p class="hint">この路線に運行中の列車がありません</p>'; return; }
+  $("s2sub").textContent = tt(`${S.trains.length}本`, `${S.trains.length} trains`);
+  if (!S.trains.length){ $("trainList").innerHTML = `<p class="hint">${tt("この路線に運行中の列車がありません", "No trains running on this line")}</p>`; return; }
 
   // sort by current station index for a tidy list
   const idxOf = (t) => { const o = r.occ[t["odpt:fromStation"]]; return o ? o[0] : 999; };
@@ -652,16 +775,16 @@ function renderTrainPicker(){
     const to   = t["odpt:toStation"];
     const dest = (t["odpt:destinationStation"]||[])[0];
     const fromN = stationTitle(S.line, from);
-    const posTxt = to ? `${fromN} → ${stationTitle(S.line,to)}` : `${fromN} に停車中`;
-    const destTxt = dest ? `${stationTitle(S.line,dest)}行` : tail(t["odpt:railDirection"]);
+    const posTxt = to ? `${fromN} → ${stationTitle(S.line,to)}` : `${fromN}${tt(" に停車中", " · stopped")}`;
+    const destTxt = dest ? `${stationTitle(S.line,dest)}${tt("行", "-bound")}` : tail(t["odpt:railDirection"]);
     const delay = t["odpt:delay"]||0;
     const isLocal = /\.Local$/.test(t["odpt:trainType"]||"");
-    const typeTag = `<span class="badge ${isLocal?'gray':'amber'}" style="font-size:10px;padding:1px 7px">${isLocal?'各停 Local':trainTypeLabel(t)}</span>`;
+    const typeTag = `<span class="badge ${isLocal?'gray':'amber'}" style="font-size:10px;padding:1px 7px">${isLocal?tt('各停','Local'):trainTypeLabel(t)}</span>`;
     return `<div class="train-opt" data-no="${no}" onclick="pickTrain('${no}')">
         <span class="train-no">${no}</span>
         <div class="train-meta">
           <div class="pos">${posTxt} ${typeTag}</div>
-          <div class="sub">${destTxt}${delay>0?` · ${delay}s遅延`:""}</div>
+          <div class="sub">${destTxt}${delay>0?` · ${delay}s${tt("遅延","delay")}`:""}</div>
         </div>
       </div>`;
   }).join("");
@@ -671,7 +794,6 @@ function renderTrainPicker(){
 // dropdown doesn't fire 'change', so this button lets the user refresh on demand).
 async function refreshTrains(){
   if (!S.line) return;
-  const b = $("btnTrainRefresh"); b.disabled = true; b.textContent = "…";
   try {
     S.trains = await getJSON("/api/trains?railway=" + encodeURIComponent(S.line));
     buildDirMap();
@@ -690,8 +812,30 @@ async function refreshTrains(){
       }
     }
     showErr("");
-  } catch(e){ showErr("更新に失敗しました (" + e.message + ")"); }
-  b.disabled=false; b.textContent="↻";
+  } catch(e){ showErr(tt("更新に失敗しました", "Refresh failed") + " (" + e.message + ")"); }
+}
+
+// Global refresh (header button): one tap refreshes EVERYTHING for the current context —
+// the live tracking poll if tracking, otherwise the line list + the trains/destination for
+// the current selection (replaces the old per-step 更新 button in step 2).
+async function refreshAll(){
+  const b = $("btnRefreshAll");
+  if (b){ b.disabled = true; b.classList.add("spinning"); }
+  try {
+    if (S.tracking){
+      await poll();
+      return;
+    }
+    const prevLine = S.line;
+    await init();                             // reload line list + railway metadata
+    if (prevLine && S.railways[prevLine]){
+      $("selLine").value = prevLine; S.line = prevLine;
+      $("s1").classList.add("done");
+      if (S.trainNo) await refreshTrains();   // keeps the selected train + destination
+      else await onLine();                    // just reload the trains for the chosen line
+    }
+  } catch(e){ showErr(tt("更新に失敗しました", "Refresh failed") + " (" + e.message + ")"); }
+  finally { if (b){ b.disabled = false; b.classList.remove("spinning"); } }
 }
 
 async function pickTrain(no){
@@ -701,7 +845,7 @@ async function pickTrain(no){
   document.querySelectorAll(".train-opt").forEach(el=>el.classList.toggle("sel", el.dataset.no===no));
   $("s2").classList.add("done");
   $("card3").style.display = "block";
-  $("destList").innerHTML = '<p class="hint" style="text-align:left"><span class="spin d"></span> 時刻表を確認中… loading stops</p>';
+  $("destList").innerHTML = `<p class="hint" style="text-align:left"><span class="spin d"></span> ${tt("時刻表を確認中…", "Loading stops…")}</p>`;
   await loadTimetable();    // so the picker can hide stations this (express) train skips
   buildDestList();
   checkReady();
@@ -800,18 +944,17 @@ function buildDestList(){
     if (skipped){
       // shown for context but not selectable — the train won't stop here
       return `<div class="dest-row passed" data-id="${o.id}">
-          <span class="ddot" style="background:var(--line);box-shadow:0 0 0 1px var(--line)"></span>${o.ja}
-          <span class="sub-en">${o.en}</span>
-          <span class="rtag" style="background:var(--surface2);color:var(--ink2)">通過</span>
+          <span class="ddot" style="background:var(--line);box-shadow:0 0 0 1px var(--line)"></span>${tt(o.ja, o.en)}
+          <span class="rtag" style="background:var(--surface2);color:var(--ink2)">${tt("通過","pass")}</span>
         </div>`;
     }
     const color = isHere ? heatHere() : heatColor(termDelta ? delta/termDelta : 1); // here-blue → red
     const cls = isHere ? "here" : "ahead";
     const click = isHere ? "" : ` onclick="selectDest('${o.id}', this)"`;
-    const tag = isHere ? '<span class="rtag" style="background:var(--here-bg);color:var(--here)">現在地</span>' : "";
+    const tag = isHere ? `<span class="rtag" style="background:var(--here-bg);color:var(--here)">${tt("現在地","here")}</span>` : "";
     const dotStyle = `background:${color};box-shadow:0 0 0 1px ${color}`;
     return `<div class="dest-row ${cls}" data-id="${o.id}"${click} style="color:${color}">
-        <span class="ddot" style="${dotStyle}"></span>${o.ja} <span class="sub-en">${o.en}</span>${tag}
+        <span class="ddot" style="${dotStyle}"></span>${tt(o.ja, o.en)}${tag}
       </div>`;
   }).join("");
 
@@ -823,9 +966,9 @@ function buildDestList(){
   if (termId && !r.occ[termId]){
     const edge = r.order[terminusNode];
     const dest = tail(termId).replace(/([a-z])([A-Z])/g, "$1 $2"); // NaritaAirportTerminal1 -> Narita Airport Terminal1
-    note.innerHTML =
-      `ℹ️ この列車は <b>${dest}</b> まで直通運転しますが、ODPT のデータは <b>${edge.ja}</b> まで。降車駅は ${edge.ja} までしか選べません。` +
-      `<br><span style="color:#9ca3af">Through-service to ${dest}, but ODPT data for this line ends at ${edge.en} — pick a stop up to there.</span>`;
+    note.innerHTML = tt(
+      `ℹ️ この列車は <b>${dest}</b> まで直通運転しますが、ODPT のデータは <b>${edge.ja}</b> まで。降車駅は ${edge.ja} までしか選べません。`,
+      `ℹ️ Through-service to <b>${dest}</b>, but ODPT data for this line ends at <b>${edge.en}</b> — pick a stop up to there.`);
     note.style.display = "block";
   } else {
     note.style.display = "none";
@@ -862,6 +1005,9 @@ function resetFrom(step){
 // ============================================================ TRACKING
 async function startTracking(){
   S.alertN = parseInt($("selAlert").value,10);
+  S.sessionStart = Date.now();     // anchors the 3h auto-stop
+  S.rideFrom = stationTitle(S.line, S.train["odpt:fromStation"]);   // boarding station (for history)
+  S.rideArrived = false; S.lastResponseSec = null;
   S.alertFired = false; S.alertAcked = false;
   S.missCount = 0; S.lastSeen = null; S.lastVibStop = null;
   S.altOpen = false; updateSwitchBtn();
@@ -883,7 +1029,7 @@ async function startTracking(){
   }
   // start foreground service so Android keeps this process alive while backgrounded
   if (IS_NATIVE && _FG) {
-    try { await _FG.startForegroundService({ title:"乗り過ごし防止", body:"列車追跡中… tracking your train", id:100, smallIcon:"ic_stat_icon_config_sample" }); } catch(_){}
+    try { await _FG.startForegroundService({ title:"乗り過ごし防止", body:tt("列車を追跡中…","Tracking your train…"), id:100, smallIcon:"ic_stat_icon_config_sample" }); } catch(_){}
   }
 
   $("setupView").style.display = "none";
@@ -1054,8 +1200,10 @@ function schedForDest(fromId, stops){
 }
 
 function stopTracking(){
+  if (S.tracking) recordRide();        // log the finished ride (needs the still-live session state)
   clearInterval(S.intervalId); clearInterval(S.timerId);
   S.tracking=false;
+  S.sessionStart=0;                    // consumed — guards against a double recordRide
   releaseAwake();                      // let the screen sleep again
   bleSend(BLE_CLEAR);                  // make sure the device is left off
   if (IS_NATIVE && _FG) { try { _FG.stopForegroundService(); } catch(_){} }
@@ -1068,6 +1216,12 @@ function stopTracking(){
 
 async function poll(){
   if (!S.tracking) return;
+  // hard safety cutoff (parity with native): a forgotten open tab can't poll forever
+  if (S.sessionStart && Date.now() - S.sessionStart > SESSION_MAX_MS){
+    stopTracking();
+    showErr(tt("3時間経過したため追跡を自動終了しました", "Tracking auto-stopped after 3 hours."));
+    return;
+  }
   const btn = $("btnRefresh");
   btn.disabled = true; btn.innerHTML = '<span class="spin d"></span> …';
   try {
@@ -1083,25 +1237,26 @@ async function poll(){
       // Keep the last known position on screen and offer a replacement rather
       // than forcing the user back to setup.
       S.missCount++;
-      $("tStatus").textContent = S.missCount<=1 ? "信号待ち… re-checking" : "列車が見つかりません";
+      $("tStatus").textContent = S.missCount<=1 ? tt("信号待ち…","Re-checking…") : tt("列車が見つかりません","Train not found");
       $("tStatus").className = "badge amber";
       warn(S.missCount<=1
-        ? `列車 ${S.trainNo} の信号が一時的に途切れました — 再確認中…`
-        : `列車 ${S.trainNo} がデータから消えました（運行終了の可能性）。乗車中なら下から選び直してください。`);
-      if (S.missCount>=2) showAlts(`${stationTitle(S.line,S.destId)} ゆきの列車`,
-        `乗っている列車をタップしてください`);
+        ? tt(`列車 ${S.trainNo} の信号が一時的に途切れました — 再確認中…`, `Signal for train ${S.trainNo} dropped briefly — re-checking…`)
+        : tt(`列車 ${S.trainNo} がデータから消えました（運行終了の可能性）。乗車中なら下から選び直してください。`, `Train ${S.trainNo} disappeared from the data (its run may have ended). If you're aboard, pick another below.`));
+      if (S.missCount>=2) showAlts(tt(`${stationTitle(S.line,S.destId)} ゆきの列車`, `Trains bound for ${stationTitle(S.line,S.destId)}`),
+        tt(`乗っている列車をタップしてください`, `Tap the train you're on`));
     } else {
       S.missCount = 0; S.lastSeen = t; S.train = t;
       render(t);
     }
     $("refreshHint").textContent =
-      `更新 ${new Date().toLocaleTimeString("ja-JP")} · 自動更新 ${POLL_MS/1000}秒`
-      + (S.ttApprox ? " · 時刻表なし（駅数は概算）" : "");
+      tt(`更新 ${new Date().toLocaleTimeString("ja-JP")} · 自動更新 ${POLL_MS/1000}秒`,
+         `Updated ${new Date().toLocaleTimeString("en-GB")} · auto every ${POLL_MS/1000}s`)
+      + (S.ttApprox ? tt(" · 時刻表なし（駅数は概算）", " · no timetable (stop count approximate)") : "");
   } catch(e){
     showErr("Fetch failed (" + e.message + ")");
     $("tStatus").textContent="offline"; $("tStatus").className="badge red";
   }
-  btn.disabled=false; btn.innerHTML="↻ 更新";
+  btn.disabled=false; btn.innerHTML="↻ " + tt("更新","Refresh");
 }
 
 // ---- path walking (handles spiral lines where a station repeats) ----------
@@ -1141,25 +1296,30 @@ function render(t){
   const hasDelay = ("odpt:delay" in t);
 
   const isLocal = /\.Local$/.test(t["odpt:trainType"]||"");
-  $("tNo").innerHTML = `${S.trainNo} <span class="badge ${isLocal?'gray':'amber'}" style="font-size:10px;padding:1px 7px">${isLocal?'各停 Local':trainTypeLabel(t)}</span>`;
+  $("tNo").innerHTML = `${S.trainNo} <span class="badge ${isLocal?'gray':'amber'}" style="font-size:10px;padding:1px 7px">${isLocal?tt('各停','Local'):trainTypeLabel(t)}</span>`;
+  // no toStation = ODPT reports the train AT fromStation. A train only dwells (停車) at a
+  // station it actually stops at; if this is a 通過駅 for this train it's passing through.
   $("tPos").textContent = toId ? `${stationTitle(S.line,fromId)} → ${stationTitle(S.line,toId)}`
-                               : `${stationTitle(S.line,fromId)} 停車中`;
+                               : `${stationTitle(S.line,fromId)} ${trainStops(fromId) ? tt("停車中","stopped") : tt("通過中","passing")}`;
   $("tDest").textContent = destBound ? stationTitle(S.line,destBound) : tail(t["odpt:railDirection"]);
-  $("tDelay").textContent = delay>0 ? `+${delay}s (${Math.round(delay/60)}分)`
-                          : hasDelay ? "定刻 on time"
-                          : "遅延情報なし — no live delay";
+  $("tDelay").textContent = delay>0 ? tt(`+${delay}s (${Math.round(delay/60)}分)`, `+${delay}s (${Math.round(delay/60)} min)`)
+                          : hasDelay ? tt("定刻","On time")
+                          : tt("遅延情報なし","No live delay");
 
-  // current node + travel direction, then stops to destination — counting only the
-  // stops THIS train actually makes (express trains skip stations; countStopsTo handles it)
+  // current node + travel direction, then the distance to the destination.
+  // physD counts EVERY physical station (通過駅 included) — it drives the countdown and
+  // the alert: "1駅前" means exactly one station away, even if the train passes it.
+  // stops counts only the stations THIS train stops at (timetable) — it stays as the
+  // index into the train's own timetable for the ETA (schedForDest).
   const cur = currentNode(r, t, S.travelDir);
   const dir = cur.dir || S.travelDir || +1;
-  let stops = null, wrongWay = false, destNode = -1;
+  let stops = null, physD = null, wrongWay = false, destNode = -1;
   if (cur.node>=0){
     let d = walk(r.order, cur.node, dir, S.destId);
-    if (d!=null){ destNode = cur.node + dir*d; stops = countStopsTo(r, cur.node, dir, destNode) ?? d; }
+    if (d!=null){ destNode = cur.node + dir*d; physD = d; stops = countStopsTo(r, cur.node, dir, destNode) ?? d; }
     else {
       const back = walk(r.order, cur.node, -dir, S.destId);
-      if (back!=null){ stops=back; wrongWay=true; destNode = cur.node - dir*back; }
+      if (back!=null){ stops=back; physD=back; wrongWay=true; destNode = cur.node - dir*back; }
     }
   }
 
@@ -1174,28 +1334,28 @@ function render(t){
     // guard: if the expected arrival is already in the past (a late train whose delay ODPT
     // under-reports as 0), don't show a confusing past clock-time — show "overdue/soon".
     $("etaNow").textContent = etaIsPast(etaMin)
-      ? "まもなく（遅延）"
-      : !hasDelay ? fmtHM(etaMin) + " 予定"   // no live delay data → it's the timetable estimate
-      : fmtHM(etaMin) + (dmin>0 ? ` +${dmin}分` : " 定刻");
+      ? tt("まもなく（遅延）","Soon (delayed)")
+      : !hasDelay ? fmtHM(etaMin) + tt(" 予定"," est.")   // no live delay data → it's the timetable estimate
+      : fmtHM(etaMin) + (dmin>0 ? ` +${dmin}${tt("分","min")}` : tt(" 定刻"," on time"));
   } else {
     $("etaSched").textContent = "—"; $("etaNow").textContent = "—";
   }
 
   const cd = $("countdown");
   $("arriveBanner").classList.remove("show"); // re-shown only by the arrived branch
-  if (stops==null){
+  if (physD==null){
     cd.textContent="—"; cd.className="countdown";
-    $("tStatus").textContent="位置不明"; $("tStatus").className="badge gray";
+    $("tStatus").textContent=tt("位置不明","Unknown"); $("tStatus").className="badge gray";
     keepAlts();
   } else if (wrongWay){
-    cd.innerHTML = `${stops}<small> 駅 · 逆方向?</small>`; cd.className="countdown warn";
-    $("tStatus").textContent="逆方向?"; $("tStatus").className="badge amber";
-    warn(`${stationTitle(S.line,S.destId)} から離れています — 下の列車から選び直せます (wrong direction?)`);
-    showAlts(`${stationTitle(S.line,S.destId)} ゆきの列車 — trains going your way`,
-      `乗っている列車をタップしてください`);
-  } else if (stops===0){
-    cd.innerHTML = `到着<small> arrived</small>`; cd.className="countdown arrived";
-    $("tStatus").textContent="到着 arrived"; $("tStatus").className="badge green";
+    cd.innerHTML = `${physD}<small> ${tt("駅 · 逆方向?","stops · wrong way?")}</small>`; cd.className="countdown warn";
+    $("tStatus").textContent=tt("逆方向?","Wrong way?"); $("tStatus").className="badge amber";
+    warn(tt(`${stationTitle(S.line,S.destId)} から離れています — 下の列車から選び直せます`, `Moving away from ${stationTitle(S.line,S.destId)} — pick another train below`));
+    showAlts(tt(`${stationTitle(S.line,S.destId)} ゆきの列車`, `Trains going your way to ${stationTitle(S.line,S.destId)}`),
+      tt(`乗っている列車をタップしてください`, `Tap the train you're on`));
+  } else if (physD===0){
+    cd.textContent = tt("到着","Arrived"); cd.className="countdown arrived";
+    $("tStatus").textContent=tt("到着","Arrived"); $("tStatus").className="badge green";
     const wasAcked = S.alertAcked, wasFired = S.alertFired;  // arrived() resets both; capture first
     arrived(); keepAlts();
     // latch: if polling jumped straight to arrival without ever entering the alert window,
@@ -1204,14 +1364,14 @@ function render(t){
     if (!wasAcked && S.lastVibStop!==0){ vibrateForStops(0); S.lastVibStop=0; }
   } else {
     clearWarn(); keepAlts();
-    cd.innerHTML = `<small>あと </small>${stops}<small> 駅</small>`;
-    cd.className = "countdown" + (stops<=S.alertN ? " alert" : stops<=S.alertN+1 ? " warn" : "");
-    if (stops<=S.alertN){
-      fireAlert(stops); $("tStatus").textContent="まもなく alert"; $("tStatus").className="badge red";
-      // escalating buzz: once per stop, stronger as the train gets closer
-      if (!S.alertAcked && stops!==S.lastVibStop){ vibrateForStops(stops); S.lastVibStop=stops; }
+    cd.innerHTML = tt(`<small>あと </small>${physD}<small> 駅</small>`, `${physD}<small> ${physD===1?"stop":"stops"} to go</small>`);
+    cd.className = "countdown" + (physD<=S.alertN ? " alert" : physD<=S.alertN+1 ? " warn" : "");
+    if (physD<=S.alertN){
+      fireAlert(physD); $("tStatus").textContent=tt("まもなく","Almost there"); $("tStatus").className="badge red";
+      // escalating buzz: once per station, stronger as the train gets closer
+      if (!S.alertAcked && physD!==S.lastVibStop){ vibrateForStops(physD); S.lastVibStop=physD; }
     }
-    else { clearAlert(); $("tStatus").textContent="追跡中 tracking"; $("tStatus").className="badge blue"; }
+    else { clearAlert(); $("tStatus").textContent=tt("追跡中","Tracking"); $("tStatus").className="badge blue"; }
   }
 
   // progress bar — fraction of the journey (boarding node -> destination) covered
@@ -1255,13 +1415,13 @@ function renderStops(r, node, destNode, dir){
     const dim = d < 0 || d > D || skip;
     if (dim) cls = "passed";
     else color = heatColor(d / D);
-    if (skip)  tag = '<span class="tag" style="background:var(--surface2);color:var(--ink2)">通過</span>';
-    if (isCur){ cls = "cur"; tag = '<span class="tag here">現在地</span>'; }
-    if (isTgt){ cls = "tgt"; tag = '<span class="tag off">降車</span>'; }
+    if (skip)  tag = `<span class="tag" style="background:var(--surface2);color:var(--ink2)">${tt("通過","pass")}</span>`;
+    if (isCur){ cls = "cur"; tag = `<span class="tag here">${tt("現在地","here")}</span>`; }
+    if (isTgt){ cls = "tgt"; tag = `<span class="tag off">${tt("降車","off")}</span>`; }
     const dotStyle = color ? `background:${color};box-shadow:0 0 0 1px ${color}` : "";
     html += `<li class="${cls}"${color?` style="color:${color}"`:""}>`
           + `<span class="dot" style="${dotStyle}"></span>`
-          + `${o.ja} <span class="sub-en" style="font-size:11px;color:var(--ink2)">${o.en}</span>${tag}</li>`;
+          + `${tt(o.ja, o.en)}${tag}</li>`;
   });
   list.innerHTML = html;
 }
@@ -1319,37 +1479,38 @@ function showAlts(title, sub, allowEmpty){
   $("altList").innerHTML = cands.length ? cands.slice(0,6).map(({t,no,ev})=>{
     const from=t["odpt:fromStation"], to=t["odpt:toStation"];
     const pos = to ? `${stationTitle(S.line,from)} → ${stationTitle(S.line,to)}`
-                   : `${stationTitle(S.line,from)} 停車中`;
+                   : `${stationTitle(S.line,from)}${tt(" 停車中"," · stopped")}`;
     const bound=(t["odpt:destinationStation"]||[])[0];
-    const boundTxt = bound ? `${stationTitle(S.line,bound)}行` : tail(t["odpt:railDirection"]);
+    const boundTxt = bound ? `${stationTitle(S.line,bound)}${tt("行","-bound")}` : tail(t["odpt:railDirection"]);
     return `<div class="train-opt" onclick="switchTrain('${no}')">
         <span class="train-no">${no}</span>
         <div class="train-meta">
           <div class="pos">${pos}</div>
-          <div class="sub">${boundTxt} · ${ev.stops} stop${ev.stops>1?"s":""} → ${stationTitle(S.line,S.destId)}</div>
+          <div class="sub">${boundTxt} · ${tt(`${ev.stops}駅 → ${stationTitle(S.line,S.destId)}`, `${ev.stops} stop${ev.stops>1?"s":""} → ${stationTitle(S.line,S.destId)}`)}</div>
         </div>
       </div>`;
-  }).join("") : `<p class="hint" style="text-align:left;margin:.2rem 0">No other train is currently heading toward ${stationTitle(S.line,S.destId)}.</p>`;
+  }).join("") : `<p class="hint" style="text-align:left;margin:.2rem 0">${tt(`${stationTitle(S.line,S.destId)} へ向かう列車は今ありません。`, `No other train is currently heading toward ${stationTitle(S.line,S.destId)}.`)}</p>`;
   $("altCard").style.display = "block";
 }
 function hideAlts(){ $("altCard").style.display="none"; $("altList").innerHTML=""; }
 
-// Manual switch-train picker (always available via the button).
-const MANUAL_ALT_TITLE = "別の列車に変更 — switch train";
-const manualAltSub = () => `${stationTitle(S.line,S.destId)} ゆきの列車です。乗っている列車をタップ:`;
+// Manual switch-train picker (always available via the button). Functions (not consts) so the
+// text tracks the active language when it's re-read after a language switch.
+function manualAltTitle(){ return tt("別の列車に変更", "Switch train"); }
+const manualAltSub = () => tt(`${stationTitle(S.line,S.destId)} ゆきの列車です。乗っている列車をタップ:`, `Trains bound for ${stationTitle(S.line,S.destId)}. Tap the one you're on:`);
 function toggleAlts(){
   S.altOpen = !S.altOpen;
-  if (S.altOpen){ showAlts(MANUAL_ALT_TITLE, manualAltSub(), true);
+  if (S.altOpen){ showAlts(manualAltTitle(), manualAltSub(), true);
                   $("altCard").scrollIntoView({behavior:"smooth", block:"center"}); }
   else hideAlts();
   updateSwitchBtn();
 }
 function updateSwitchBtn(){
   const b = $("btnSwitch"); if (!b) return;
-  b.textContent = S.altOpen ? "✕ 閉じる — close" : "別の列車に変更 — switch train";
+  b.innerHTML = S.altOpen ? ("✕ " + tt("閉じる","Close")) : (`<span class="ja">別の列車に変更</span><span class="en">Switch train</span>`);
 }
 // Called from render() good branches: keep the manual picker open & fresh, else hide.
-function keepAlts(){ if (S.altOpen) showAlts(MANUAL_ALT_TITLE, manualAltSub(), true); else hideAlts(); }
+function keepAlts(){ if (S.altOpen) showAlts(manualAltTitle(), manualAltSub(), true); else hideAlts(); }
 
 // Re-target tracking onto a different train without leaving the tracking screen.
 function switchTrain(no){
@@ -1393,7 +1554,7 @@ function ensureSignaled(stops){
 function fireAlert(stops){
   if (S.alertAcked) return;     // user pressed "I'm awake" — stay silent this approach
   clearWarn();
-  $("alertText").textContent = `まもなく ${stationTitle(S.line,S.destId)} — あと${stops}駅。降りる準備を`;
+  $("alertText").textContent = tt(`まもなく ${stationTitle(S.line,S.destId)} — あと${stops}駅。降りる準備を`, `Approaching ${stationTitle(S.line,S.destId)} — ${stops} stop${stops===1?"":"s"} to go. Get ready to alight.`);
   $("alertBanner").classList.add("show");
   ensureSignaled(stops);        // fire the signal channels once per approach
 }
@@ -1401,13 +1562,15 @@ function clearAlert(){
   $("alertBanner").classList.remove("show");
   if (S.alertFired) bleSend(BLE_CLEAR);   // turn the LED/haptic off on the alert→clear transition
   S.alertFired=false;
-  S.alertAcked=false;                     // out of the alert zone → re-arm for next time
-  S.lastVibStop=null;                     // re-arm escalating vibration too
+  // NOTE: S.alertAcked is NOT reset here — 「起きた！」 latches for the rest of the session
+  // (re-armed only by a new session or switchTrain), so nothing re-fires after the user acked.
+  S.lastVibStop=null;                     // re-arm escalating vibration
 }
 
 function arrived(){
   clearAlert();
-  $("arriveText").textContent = `${stationTitle(S.line,S.destId)} に到着 — you've arrived`;
+  S.rideArrived = true;                 // remembered for the ride-history row
+  $("arriveText").textContent = tt(`${stationTitle(S.line,S.destId)} に到着 — 到着しました`, `Arrived at ${stationTitle(S.line,S.destId)} — you've arrived`);
   $("arriveBanner").classList.add("show");
 }
 
@@ -1417,13 +1580,13 @@ function signal(){
   // 1) system popup notification (native: LocalNotifications; web: Notification API)
   if (IS_NATIVE && _LN){
     _LN.schedule({ notifications:[{
-      title: "乗り過ごし防止 ⚡",
-      body:  `まもなく ${stopName}。降りる準備を！`,
+      title: tt("乗り過ごし防止 ⚡","Norisugoshi ⚡"),
+      body:  tt(`まもなく ${stopName}。降りる準備を！`, `Approaching ${stopName}. Get ready to alight!`),
       id: 2,
       smallIcon: "ic_stat_icon_config_sample",
     }]}).catch(()=>{});
   } else if ("Notification" in window && Notification.permission==="granted"){
-    try { new Notification("乗り過ごし防止 ⚡", { body:`まもなく ${stopName}。降りる準備を！`, requireInteraction:true }); } catch(_){}
+    try { new Notification(tt("乗り過ごし防止 ⚡","Norisugoshi ⚡"), { body:tt(`まもなく ${stopName}。降りる準備を！`, `Approaching ${stopName}. Get ready to alight!`), requireInteraction:true }); } catch(_){}
   }
   // 2) one-shot native haptic burst on alert fire (escalating per-stop is in render→vibrateForStops)
   if (IS_NATIVE && _HP){ _HP.vibrate({ duration:700 }).catch(()=>{}); }
@@ -1555,7 +1718,7 @@ async function bleSend(value){
 }
 // Manual test from the setup screen: buzz at the chosen strength for 1.5s to verify wiring.
 async function bleTest(){
-  if (!S.ble.char){ alert("先にデバイスを接続してください — connect a device first."); return; }
+  if (!S.ble.char){ alert(tt("先にデバイスを接続してください。", "Connect a device first.")); return; }
   await bleSend(hapticStrength());
   setTimeout(()=>bleSend(BLE_CLEAR), 1500);
 }
@@ -1578,17 +1741,66 @@ function stopTimer(atMs){
   clearInterval(S.timerId);
   const sec = (((typeof atMs === "number" ? atMs : Date.now())-S.t0)/1000);
   S.times.push(sec);
-  const avg = S.times.reduce((a,b)=>a+b,0)/S.times.length;
+  S.lastResponseSec = +sec.toFixed(2);      // shown on this ride's history row
 
   // ── persist the record so the experiment data survives reloads/restarts ──
   const rec = Object.assign({ awakeAt: new Date().toISOString(), responseSec: +sec.toFixed(2) }, S.alertCtx || {});
   const log = loadLog(); log.push(rec); try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch(_){}
 
-  $("timerVal").textContent = sec.toFixed(2)+"s";
-  const res=$("timerRes"); res.style.display="block";
-  res.innerHTML = `✅ ${sec.toFixed(2)}s · session avg ${avg.toFixed(2)}s · 記録 ${log.length} 件 保存済み`;
+  // recorded silently — hide the timer card (the stats live in 設定 → 実験データ, not here)
+  $("timer").classList.remove("show");
+  $("timerRes").style.display="none";
   updateExportBtn();
   S.t0=null;
+}
+
+// ── ride history (user-facing; separate from the response-time research log) ──
+function loadRides(){ try { return JSON.parse(localStorage.getItem(RIDE_KEY) || "[]"); } catch(_){ return []; } }
+// Record the just-finished ride. Called from stopTracking(); needs an active session with a
+// chosen train + destination, so aborted setups don't create empty rows. Newest stored last.
+function recordRide(){
+  if (!S.sessionStart || !S.trainNo || !S.destId) return;
+  const rec = {
+    at: new Date().toISOString(),
+    line: (S.railways[S.line] && S.railways[S.line].ja) || tail(S.line),
+    train: S.trainNo,
+    trainType: tail((S.train && S.train["odpt:trainType"]) || "") || "Local",
+    from: S.rideFrom || "—",
+    dest: stationTitle(S.line, S.destId),
+    arrived: !!S.rideArrived,
+    alerted: !!(S.alertFired || S.alertAcked),
+    responseSec: (typeof S.lastResponseSec === "number") ? S.lastResponseSec : null,
+  };
+  const rides = loadRides(); rides.push(rec);
+  while (rides.length > RIDE_MAX) rides.shift();   // trim oldest — keep the most recent RIDE_MAX
+  try { localStorage.setItem(RIDE_KEY, JSON.stringify(rides)); } catch(_){}
+}
+function renderRideHistory(){
+  const el = $("rideList"); if (!el) return;
+  const rides = loadRides().slice().reverse();   // newest first
+  $("btnClearRides").disabled = rides.length === 0;
+  if (!rides.length){ el.innerHTML = `<div class="empty">${tt("まだ記録がありません。", "No rides yet.")}</div>`; return; }
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  el.innerHTML = rides.map(r => {
+    const d = new Date(r.at);
+    const when = isNaN(d) ? "" : `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+    const tags = [];
+    tags.push(`<span class="r-tag ${r.arrived?'ok':'miss'}">${r.arrived?tt('到着','Arrived'):tt('途中終了','Ended early')}</span>`);
+    if (r.alerted) tags.push(`<span class="r-tag">${tt('通知','Alerted')}${r.responseSec!=null?` · ${tt('反応','resp')} ${r.responseSec.toFixed(1)}s`:""}</span>`);
+    else tags.push(`<span class="r-tag">${tt('通知なし','No alert')}</span>`);
+    return `<div class="ride-row">
+        <div class="r-top"><span class="r-line">${esc(r.line)} · ${esc(r.train)}</span><span class="r-when">${when}</span></div>
+        <div class="r-route">${esc(r.from)} → ${esc(r.dest)}</div>
+        <div class="r-meta"><span>${esc(r.trainType)}</span>${tags.join("")}</div>
+      </div>`;
+  }).join("");
+}
+function clearRideHistory(){
+  const n = loadRides().length;
+  if (!n){ alert(tt("削除する履歴がありません。", "No history to clear.")); return; }
+  if (!confirm(tt(`乗車履歴 ${n} 件をすべて削除します。元に戻せません。`, `Delete ALL ${n} rides? This CANNOT be undone.`))) return;
+  try { localStorage.removeItem(RIDE_KEY); } catch(_){}
+  renderRideHistory();
 }
 
 // ── experiment log persistence + CSV export ──
@@ -1596,12 +1808,12 @@ function loadLog(){ try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]
 function updateExportBtn(){
   const b = $("btnExport"); if (!b) return;
   const n = loadLog().length;
-  b.textContent = `CSV 書き出し (${n})`;
+  b.textContent = tt(`CSV 書き出し (${n})`, `Export CSV (${n})`);
   b.disabled = n === 0;
 }
 function exportLog(){
   const log = loadLog();
-  if (!log.length){ alert("No response times logged yet."); return; }
+  if (!log.length){ alert(tt("まだ記録がありません。", "No response times logged yet.")); return; }
   const cols = ["awakeAt","responseSec","line","train","trainType","dest","alertStopsBefore","stopsAtAlert","alertSource","delaySec","ble"];
   const csv = [cols.join(",")]
     .concat(log.map(r => cols.map(c => { const v = r[c]; return /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : (v ?? ""); }).join(",")))
@@ -1613,9 +1825,9 @@ function exportLog(){
 }
 function clearLog(){
   const n = loadLog().length;
-  if (!n){ alert("削除する記録がありません — no records to clear."); return; }
+  if (!n){ alert(tt("削除する記録がありません。", "No records to clear.")); return; }
   // strong, count-aware confirmation so a participant can't wipe the data with a stray tap
-  if (!confirm(`⚠️ 記録 ${n} 件をすべて削除します。元に戻せません。\n\nDelete ALL ${n} saved records? This CANNOT be undone.`)) return;
+  if (!confirm(tt(`⚠️ 記録 ${n} 件をすべて削除します。元に戻せません。`, `⚠️ Delete ALL ${n} saved records? This CANNOT be undone.`))) return;
   try { localStorage.removeItem(LOG_KEY); } catch(_){}
   S.times = []; updateExportBtn();
 }
