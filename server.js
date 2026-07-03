@@ -41,15 +41,30 @@ const path  = require("path");   // build a safe file path to index.html
 // In production (Render etc.) set the ODPT_CONSUMER_KEY environment variable; the
 // hard-coded value below is just a local fallback so `node server.js` works as-is.
 // NOTE: if you make the GitHub repo PUBLIC, remove this fallback and rotate the key.
-const API_KEY = process.env.ODPT_CONSUMER_KEY ||
-  "arwj9iz974nhl46zetqae38etsuiv6bqr0u2pff6df4k99b3eswib8ule0sw3i4x";
+// TWO data sources, merged (measured 2026-07-03 — they are COMPLEMENTS, not duplicates):
+//  · center    (api.odpt.org)           — Toei, TokyoMetro, … (the original 94 railways)
+//  · challenge (api-challenge.odpt.org) — ODPT Challenge 2026: adds Tobu, Seibu, Tokyu, …
+// ⚠️ Keys are HOST-BOUND: the challenge key 403s on api.odpt.org and vice versa — a key
+// always travels with its base URL. Every /api/* route queries BOTH and merges, so losing
+// one source (e.g. the challenge key expires after the challenge) degrades gracefully.
+const SOURCES = [
+  {
+    name: "center",
+    base: process.env.ODPT_BASE || "https://api.odpt.org/api/v4",
+    key:  process.env.ODPT_CONSUMER_KEY ||
+          "arwj9iz974nhl46zetqae38etsuiv6bqr0u2pff6df4k99b3eswib8ule0sw3i4x",
+  },
+  {
+    name: "challenge",   // valid during ODPT Challenge 2026 (https://challenge2026.odpt.org)
+    base: process.env.ODPT_CHALLENGE_BASE || "https://api-challenge.odpt.org/api/v4",
+    key:  process.env.ODPT_CHALLENGE_KEY ||
+          "if7p3zh1sfcud2jsjcidppa9vg099j9ks6bxnuq8lyz9tv7ycf5vyoqz8mxw9qnu",
+  },
+];
 
 // The "port" (door number) this server listens on. `process.env.PORT` lets you
 // override it, e.g.  PORT=4000 node server.js  — otherwise it defaults to 3000.
 const PORT = process.env.PORT || 3000;
-
-// Base URL of the ODPT API. We append the specific data type + key to this.
-const ODPT = "https://api.odpt.org/api/v4";
 
 // --- Simple cache for railway metadata --------------------------------------
 // Line names and station order almost never change, so there's no reason to ask
@@ -84,6 +99,32 @@ function fetchOdpt(url) {
       })
       .on("error", reject); // network-level failure (DNS, no internet, etc.)
   });
+}
+
+/**
+ * fetchMerged(pathAndQuery) — ask EVERY source for the same resource and concat
+ * the arrays. `pathAndQuery` is e.g. "odpt:Train?odpt:railway=…" (no key — each
+ * source appends its own). One source failing is tolerated (logged, skipped);
+ * only if ALL fail do we throw, so the app keeps working when the challenge
+ * key expires or one host has an outage.
+ */
+async function fetchMerged(pathAndQuery) {
+  const sep = pathAndQuery.includes("?") ? "&" : "?";
+  const results = await Promise.allSettled(SOURCES.map((s) =>
+    fetchOdpt(`${s.base}/${pathAndQuery}${sep}acl:consumerKey=${s.key}`)
+  ));
+  const merged = [];
+  let okCount = 0;
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled") {
+      try { merged.push(...JSON.parse(r.value)); okCount++; }
+      catch (e) { console.warn(`  ! ${SOURCES[i].name}: bad JSON (${e.message})`); }
+    } else {
+      console.warn(`  ! ${SOURCES[i].name}: ${r.reason.message.slice(0, 120)}`);
+    }
+  });
+  if (okCount === 0) throw new Error("all ODPT sources failed");
+  return merged;
 }
 
 /**
@@ -165,13 +206,10 @@ const server = http.createServer(async (req, res) => {
       // if absent, ODPT returns trains on ALL lines (the app uses that to discover
       // which lines are currently running).
       const railway = url.searchParams.get("railway") || "";
-      const odptUrl =
-        `${ODPT}/odpt:Train?acl:consumerKey=${API_KEY}` +
-        (railway ? `&odpt:railway=${encodeURIComponent(railway)}` : "");
-
-      const data = await fetchOdpt(odptUrl);            // text body from ODPT
-      console.log(`[${now()}] /api/trains${railway ? " " + railway : " (all)"} -> ${JSON.parse(data).length} trains`);
-      return sendJson(res, 200, data);                  // pass it straight through
+      const trains = await fetchMerged(
+        "odpt:Train" + (railway ? `?odpt:railway=${encodeURIComponent(railway)}` : ""));
+      console.log(`[${now()}] /api/trains${railway ? " " + railway : " (all)"} -> ${trains.length} trains (merged)`);
+      return sendJson(res, 200, trains);
     }
 
     // ---- ROUTE: a train's scheduled timetable -----------------------------
@@ -182,14 +220,14 @@ const server = http.createServer(async (req, res) => {
       const railway  = url.searchParams.get("railway")  || "";
       const train    = url.searchParams.get("train")    || "";
       const calendar = url.searchParams.get("calendar") || "";
-      const odptUrl =
-        `${ODPT}/odpt:TrainTimetable?acl:consumerKey=${API_KEY}` +
-        (railway  ? `&odpt:railway=${encodeURIComponent(railway)}` : "") +
-        (train    ? `&odpt:trainNumber=${encodeURIComponent(train)}` : "") +
-        (calendar ? `&odpt:calendar=${encodeURIComponent(calendar)}` : "");
-      const data = await fetchOdpt(odptUrl);
-      console.log(`[${now()}] /api/timetable ${railway} ${train} ${calendar} -> ${JSON.parse(data).length}`);
-      return sendJson(res, 200, data);
+      const qs = [
+        railway  && `odpt:railway=${encodeURIComponent(railway)}`,
+        train    && `odpt:trainNumber=${encodeURIComponent(train)}`,
+        calendar && `odpt:calendar=${encodeURIComponent(calendar)}`,
+      ].filter(Boolean).join("&");
+      const tt = await fetchMerged("odpt:TrainTimetable" + (qs ? `?${qs}` : ""));
+      console.log(`[${now()}] /api/timetable ${railway} ${train} ${calendar} -> ${tt.length} (merged)`);
+      return sendJson(res, 200, tt);
     }
 
     // ---- ROUTE: railway metadata (cached) ---------------------------------
@@ -199,11 +237,22 @@ const server = http.createServer(async (req, res) => {
         console.log(`[${now()}] /api/railways (cache)`);
         return sendJson(res, 200, railwayCache.data);
       }
-      // Cache empty or stale: fetch fresh, then remember it with a timestamp.
-      const data = await fetchOdpt(`${ODPT}/odpt:Railway?acl:consumerKey=${API_KEY}`);
-      railwayCache = { data, at: Date.now() };
-      console.log(`[${now()}] /api/railways -> ${JSON.parse(data).length} railways (refreshed)`);
-      return sendJson(res, 200, data);
+      // Cache empty or stale: fetch fresh from BOTH sources, dedupe by railway id.
+      // When both sources describe the same railway, keep the record that actually
+      // has odpt:stationOrder — the app can't track a line without it (measured: the
+      // challenge host serves Toei/Metro rows WITHOUT stationOrder; center has them).
+      const merged = await fetchMerged("odpt:Railway");
+      const hasOrder = (r) => ((r || {})["odpt:stationOrder"] || []).length > 0;
+      const byId = new Map();
+      for (const r of merged) {
+        const id = r["owl:sameAs"];
+        const cur = byId.get(id);
+        if (!cur || (!hasOrder(cur) && hasOrder(r))) byId.set(id, r);
+      }
+      const railways = [...byId.values()];
+      railwayCache = { data: JSON.stringify(railways), at: Date.now() };
+      console.log(`[${now()}] /api/railways -> ${railways.length} railways (merged+deduped, refreshed)`);
+      return sendJson(res, 200, railwayCache.data);
     }
 
     // ---- ROUTE: the web page + PWA assets ---------------------------------
