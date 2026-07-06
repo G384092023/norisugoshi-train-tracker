@@ -296,7 +296,7 @@
       <div class="step-head">
         <div class="step-num" id="s1">1</div>
         <div class="step-title lk"><span class="ja">路線</span><span class="en">Your line</span></div>
-        <div class="step-sub" id="s1sub">loading…</div>
+        <div class="step-sub" id="s1sub"><span class="ja">読込中</span><span class="en">Loading...</span></div>
       </div>
       <label class="fld" for="selLine"><span class="ja">運行中の路線のみ表示されます</span><span class="en">Only lines currently running are shown</span></label>
       <select id="selLine"><option value="">— …</option></select>
@@ -306,7 +306,7 @@
     <div class="card" id="card2" style="display:none">
       <div class="step-head">
         <div class="step-num" id="s2">2</div>
-        <div class="step-title lk"><span class="ja">列車</span><span class="en">Which train</span></div>
+        <div class="step-title lk"><span class="ja">列車</span><span class="en">Your train</span></div>
         <div class="step-sub" id="s2sub"></div>
       </div>
       <label class="fld"><span class="ja">車内の号車表示か、行先・現在地で選んでください</span><span class="en">Pick by the car-number shown onboard, or by destination / current position</span></label>
@@ -317,16 +317,16 @@
     <div class="card" id="card3" style="display:none">
       <div class="step-head">
         <div class="step-num" id="s3">3</div>
-        <div class="step-title lk"><span class="ja">降車駅</span><span class="en">Get off at</span></div>
+        <div class="step-title lk"><span class="ja">降車駅</span><span class="en">Your Destination</span></div>
       </div>
       <div class="dest-legend">
-        <span><i class="leg-here"></i><span class="ja">現在地</span><span class="en">here</span></span>
-        <span><i style="width:32px;border-radius:3px;background:linear-gradient(90deg,var(--here),var(--danger))"></i><span class="ja">この先の駅をタップ</span><span class="en">tap a stop ahead</span></span>
+        <span><i class="leg-here"></i><span class="ja">現在地</span><span class="en">Current</span></span>
+        <span><i style="width:32px;border-radius:3px;background:linear-gradient(90deg,var(--here),var(--danger))"></i><span class="ja">この先の駅をタップ</span><span class="en">Tap a stop ahead</span></span>
       </div>
       <div class="dest-list" id="destList"></div>
       <p class="hint" id="destNote" style="text-align:left; display:none; margin-top:.55rem;"></p>
       <div class="field" style="margin-top:.85rem; max-width:60%">
-        <label class="fld" for="selAlert"><span class="ja">通知タイミング（通過駅も数えます）</span><span class="en">Alert before (pass-through stations counted)</span></label>
+        <label class="fld" for="selAlert"><span class="ja">通知タイミング（通過駅も含む）</span><span class="en">Alert before (including pass-through stations)</span></label>
         <select id="selAlert">
           <option value="1">1駅前</option>
           <option value="2" selected>2駅前</option>
@@ -402,13 +402,13 @@
       <div class="step-title lk" style="margin-bottom:.4rem"><span class="ja">停車駅</span><span class="en">Stops</span></div>
       <ul class="stops" id="stopsList"></ul>
       <details class="info">
-        <summary><span class="ja">色の見かた</span><span class="en">What the colors mean</span></summary>
+        <summary></summary>
         <div class="body">
           <span class="stops-legend" style="margin:0">
-            <span><i style="background:var(--here)"></i><span class="ja">現在地</span><span class="en">here</span></span>
-            <span><i style="width:32px;border-radius:3px;background:linear-gradient(90deg,var(--here),var(--danger))"></i><span class="ja">近づくほど赤</span><span class="en">closer</span></span>
-            <span><i style="background:var(--danger)"></i><span class="ja">降車</span><span class="en">get off</span></span>
-            <span><i style="background:var(--line)"></i><span class="ja">通過</span><span class="en">passed</span></span>
+            <span><i style="background:var(--here)"></i><span class="ja">現在地</span><span class="en">Current</span></span>
+            <span><i style="width:32px;border-radius:3px;background:linear-gradient(90deg,var(--here),var(--danger))"></i></span>
+            <span><i style="background:var(--danger)"></i><span class="ja">降車</span><span class="en">Destination</span></span>
+            <span><i style="background:var(--line)"></i><span class="ja">通過</span><span class="en">Passed</span></span>
           </span>
         </div>
       </details>
@@ -489,7 +489,7 @@
         <b>ODPT Challenge 2026</b>. Data is based on information provided by each transit operator
         and is not guaranteed to be accurate or complete (real-time accuracy is not guaranteed).
         For inquiries about this app, please contact the developer (Takushoku University
-        graduation research), not the transit operators.
+        Graduation Research), not the transit operators.
       </p>
     </div>
   </div>
@@ -775,7 +775,7 @@ function renderTrainPicker(){
     const to   = t["odpt:toStation"];
     const dest = (t["odpt:destinationStation"]||[])[0];
     const fromN = stationTitle(S.line, from);
-    const posTxt = to ? `${fromN} → ${stationTitle(S.line,to)}` : `${fromN}${tt(" に停車中", " · stopped")}`;
+    const posTxt = to ? `${fromN} → ${stationTitle(S.line,to)}` : `${fromN}${tt(" に停車中", " · stopping at")}`;
     const destTxt = dest ? `${stationTitle(S.line,dest)}${tt("行", "-bound")}` : tail(t["odpt:railDirection"]);
     const delay = t["odpt:delay"]||0;
     const isLocal = /\.Local$/.test(t["odpt:trainType"]||"");
@@ -945,13 +945,13 @@ function buildDestList(){
       // shown for context but not selectable — the train won't stop here
       return `<div class="dest-row passed" data-id="${o.id}">
           <span class="ddot" style="background:var(--line);box-shadow:0 0 0 1px var(--line)"></span>${tt(o.ja, o.en)}
-          <span class="rtag" style="background:var(--surface2);color:var(--ink2)">${tt("通過","pass")}</span>
+          <span class="rtag" style="background:var(--surface2);color:var(--ink2)">${tt("通過","pass through")}</span>
         </div>`;
     }
     const color = isHere ? heatHere() : heatColor(termDelta ? delta/termDelta : 1); // here-blue → red
     const cls = isHere ? "here" : "ahead";
     const click = isHere ? "" : ` onclick="selectDest('${o.id}', this)"`;
-    const tag = isHere ? `<span class="rtag" style="background:var(--here-bg);color:var(--here)">${tt("現在地","here")}</span>` : "";
+    const tag = isHere ? `<span class="rtag" style="background:var(--here-bg);color:var(--here)">${tt("現在地","Current")}</span>` : "";
     const dotStyle = `background:${color};box-shadow:0 0 0 1px ${color}`;
     return `<div class="dest-row ${cls}" data-id="${o.id}"${click} style="color:${color}">
         <span class="ddot" style="${dotStyle}"></span>${tt(o.ja, o.en)}${tag}
@@ -1237,7 +1237,7 @@ async function poll(){
       // Keep the last known position on screen and offer a replacement rather
       // than forcing the user back to setup.
       S.missCount++;
-      $("tStatus").textContent = S.missCount<=1 ? tt("信号待ち…","Re-checking…") : tt("列車が見つかりません","Train not found");
+      $("tStatus").textContent = S.missCount<=1 ? tt("確認中…","Re-checking…") : tt("列車が見つかりません","Train not found");
       $("tStatus").className = "badge amber";
       warn(S.missCount<=1
         ? tt(`列車 ${S.trainNo} の信号が一時的に途切れました — 再確認中…`, `Signal for train ${S.trainNo} dropped briefly — re-checking…`)
@@ -1300,7 +1300,7 @@ function render(t){
   // no toStation = ODPT reports the train AT fromStation. A train only dwells (停車) at a
   // station it actually stops at; if this is a 通過駅 for this train it's passing through.
   $("tPos").textContent = toId ? `${stationTitle(S.line,fromId)} → ${stationTitle(S.line,toId)}`
-                               : `${stationTitle(S.line,fromId)} ${trainStops(fromId) ? tt("停車中","stopped") : tt("通過中","passing")}`;
+                               : `${stationTitle(S.line,fromId)} ${trainStops(fromId) ? tt("停車中","stopping at") : tt("通過中","passing")}`;
   $("tDest").textContent = destBound ? stationTitle(S.line,destBound) : tail(t["odpt:railDirection"]);
   $("tDelay").textContent = delay>0 ? tt(`+${delay}s (${Math.round(delay/60)}分)`, `+${delay}s (${Math.round(delay/60)} min)`)
                           : hasDelay ? tt("定刻","On time")
@@ -1416,8 +1416,8 @@ function renderStops(r, node, destNode, dir){
     if (dim) cls = "passed";
     else color = heatColor(d / D);
     if (skip)  tag = `<span class="tag" style="background:var(--surface2);color:var(--ink2)">${tt("通過","pass")}</span>`;
-    if (isCur){ cls = "cur"; tag = `<span class="tag here">${tt("現在地","here")}</span>`; }
-    if (isTgt){ cls = "tgt"; tag = `<span class="tag off">${tt("降車","off")}</span>`; }
+    if (isCur){ cls = "cur"; tag = `<span class="tag here">${tt("現在地","Current")}</span>`; }
+    if (isTgt){ cls = "tgt"; tag = `<span class="tag off">${tt("降車","Destination")}</span>`; }
     const dotStyle = color ? `background:${color};box-shadow:0 0 0 1px ${color}` : "";
     html += `<li class="${cls}"${color?` style="color:${color}"`:""}>`
           + `<span class="dot" style="${dotStyle}"></span>`
@@ -1479,7 +1479,7 @@ function showAlts(title, sub, allowEmpty){
   $("altList").innerHTML = cands.length ? cands.slice(0,6).map(({t,no,ev})=>{
     const from=t["odpt:fromStation"], to=t["odpt:toStation"];
     const pos = to ? `${stationTitle(S.line,from)} → ${stationTitle(S.line,to)}`
-                   : `${stationTitle(S.line,from)}${tt(" 停車中"," · stopped")}`;
+                   : `${stationTitle(S.line,from)}${tt(" 停車中"," · stopping at")}`;
     const bound=(t["odpt:destinationStation"]||[])[0];
     const boundTxt = bound ? `${stationTitle(S.line,bound)}${tt("行","-bound")}` : tail(t["odpt:railDirection"]);
     return `<div class="train-opt" onclick="switchTrain('${no}')">
@@ -1554,7 +1554,7 @@ function ensureSignaled(stops){
 function fireAlert(stops){
   if (S.alertAcked) return;     // user pressed "I'm awake" — stay silent this approach
   clearWarn();
-  $("alertText").textContent = tt(`まもなく ${stationTitle(S.line,S.destId)} — あと${stops}駅。降りる準備を`, `Approaching ${stationTitle(S.line,S.destId)} — ${stops} stop${stops===1?"":"s"} to go. Get ready to alight.`);
+  $("alertText").textContent = tt(`まもなく ${stationTitle(S.line,S.destId)} — あと${stops}駅。降りる準備を`, `Approaching ${stationTitle(S.line,S.destId)} — ${stops} stop${stops===1?"":"s"} to go. Get ready to get off.`);
   $("alertBanner").classList.add("show");
   ensureSignaled(stops);        // fire the signal channels once per approach
 }
@@ -1581,12 +1581,12 @@ function signal(){
   if (IS_NATIVE && _LN){
     _LN.schedule({ notifications:[{
       title: tt("乗り過ごし防止 ⚡","Norisugoshi ⚡"),
-      body:  tt(`まもなく ${stopName}。降りる準備を！`, `Approaching ${stopName}. Get ready to alight!`),
+      body:  tt(`まもなく ${stopName}。降りる準備を！`, `Approaching ${stopName}. Get ready to get off!`),
       id: 2,
       smallIcon: "ic_stat_icon_config_sample",
     }]}).catch(()=>{});
   } else if ("Notification" in window && Notification.permission==="granted"){
-    try { new Notification(tt("乗り過ごし防止 ⚡","Norisugoshi ⚡"), { body:tt(`まもなく ${stopName}。降りる準備を！`, `Approaching ${stopName}. Get ready to alight!`), requireInteraction:true }); } catch(_){}
+    try { new Notification(tt("乗り過ごし防止 ⚡","Norisugoshi ⚡"), { body:tt(`まもなく ${stopName}。降りる準備を！`, `Approaching ${stopName}. Get ready to get off!`), requireInteraction:true }); } catch(_){}
   }
   // 2) one-shot native haptic burst on alert fire (escalating per-stop is in render→vibrateForStops)
   if (IS_NATIVE && _HP){ _HP.vibrate({ duration:700 }).catch(()=>{}); }
