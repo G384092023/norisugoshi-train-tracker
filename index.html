@@ -775,7 +775,7 @@ function renderTrainPicker(){
     const to   = t["odpt:toStation"];
     const dest = (t["odpt:destinationStation"]||[])[0];
     const fromN = stationTitle(S.line, from);
-    const posTxt = to ? `${fromN} → ${stationTitle(S.line,to)}` : `${fromN}${tt(" に停車中", " · stopping at")}`;
+    const posTxt = to ? `${fromN} → ${stationTitle(S.line,to)}` : tt(`${fromN} に停車中`, `Stopping at ${fromN}`);
     const destTxt = dest ? `${stationTitle(S.line,dest)}${tt("行", "-bound")}` : tail(t["odpt:railDirection"]);
     const delay = t["odpt:delay"]||0;
     const isLocal = /\.Local$/.test(t["odpt:trainType"]||"");
@@ -1300,7 +1300,7 @@ function render(t){
   // no toStation = ODPT reports the train AT fromStation. A train only dwells (停車) at a
   // station it actually stops at; if this is a 通過駅 for this train it's passing through.
   $("tPos").textContent = toId ? `${stationTitle(S.line,fromId)} → ${stationTitle(S.line,toId)}`
-                               : `${stationTitle(S.line,fromId)} ${trainStops(fromId) ? tt("停車中","stopping at") : tt("通過中","passing")}`;
+                               : `${stationTitle(S.line,fromId)} ${trainStops(fromId) ? tt("停車中","stopping at") : tt("通過中","passing through")}`;
   $("tDest").textContent = destBound ? stationTitle(S.line,destBound) : tail(t["odpt:railDirection"]);
   $("tDelay").textContent = delay>0 ? tt(`+${delay}s (${Math.round(delay/60)}分)`, `+${delay}s (${Math.round(delay/60)} min)`)
                           : hasDelay ? tt("定刻","On time")
@@ -1479,7 +1479,7 @@ function showAlts(title, sub, allowEmpty){
   $("altList").innerHTML = cands.length ? cands.slice(0,6).map(({t,no,ev})=>{
     const from=t["odpt:fromStation"], to=t["odpt:toStation"];
     const pos = to ? `${stationTitle(S.line,from)} → ${stationTitle(S.line,to)}`
-                   : `${stationTitle(S.line,from)}${tt(" 停車中"," · stopping at")}`;
+                   : tt(`${stationTitle(S.line,from)} 停車中`, `Stopping at ${stationTitle(S.line,from)}`);
     const bound=(t["odpt:destinationStation"]||[])[0];
     const boundTxt = bound ? `${stationTitle(S.line,bound)}${tt("行","-bound")}` : tail(t["odpt:railDirection"]);
     return `<div class="train-opt" onclick="switchTrain('${no}')">
