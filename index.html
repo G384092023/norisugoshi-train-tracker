@@ -339,6 +339,24 @@
         <button class="btn ghost icon-btn" style="margin-left:auto" onclick="connectBLE()"><span class="ja">接続</span><span class="en">Connect</span></button>
         <button class="btn ghost icon-btn" id="btnBleTest" onclick="bleTest()" disabled><span class="ja">テスト</span><span class="en">Test</span></button>
       </div>
+      <div class="ble-line" style="margin-top:.5rem">
+        <span style="white-space:nowrap">Pavlok<span class="ja"> (クラウド)</span><span class="en"> (cloud)</span></span>
+        <input id="pavlokToken" type="password" autocomplete="off" spellcheck="false"
+               placeholder="Bearer token" oninput="savePavlokToken()"
+               style="flex:1; min-width:0; margin:0 .4rem; padding:.3rem .5rem; font-size:.8rem">
+        <button class="btn ghost icon-btn" onclick="pavlokTest()"><span class="ja">テスト</span><span class="en">Test</span></button>
+      </div>
+      <details class="info">
+        <summary><span class="ja">Pavlok トークンの取得</span><span class="en">Get a Pavlok token</span></summary>
+        <div class="body ja">
+          公式 Pavlok アプリでバンドを接続しておく必要があります（アプリがブザーを中継します）。<br>
+          トークンは Pavlok のメール＋パスワードでログインして取得します（Google 連携のみの場合は先にパスワードを設定）。
+        </div>
+        <div class="body en">
+          The official Pavlok app must be installed, signed in, and connected to the band — it relays the buzz.<br>
+          Get the token by logging in with your Pavlok email + password (Google-only accounts: set a password first).
+        </div>
+      </details>
       <details class="info">
         <summary><span class="ja">接続できないとき</span><span class="en">Connection help</span></summary>
         <div class="body ja">
@@ -500,13 +518,55 @@
 const API = "";                       // same origin as the proxy
 const POLL_MS = 25000;                // auto refresh every 25s
 const SESSION_MAX_MS = 3*60*60*1000;  // hard 3h auto-stop (parity with the native service)
-// BLE — Nordic UART service (common on ESP32 firmware). Change to match your device.
-// These UUIDs MUST match the Arduino sketch (arduino/norisugoshi_ble/).
-const BLE_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-const BLE_CMD     = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // characteristic we write 1 byte to
-// command bytes the firmware understands: 0x01–0x0A = alert at strength 1–10 (haptic
-// amplitude; plain 0x01 still works as full alert on old firmware), 0x00 = clear (off)
-const BLE_ALERT = 0x01, BLE_CLEAR = 0x00;
+// BLE — the app can drive more than one kind of wrist device. We AUTO-DETECT which one
+// connected (by its advertised GATT service, falling back to the advertised name), then
+// translate the app's universal "signal intent" into that device's own write:
+//   signal value 0 = clear/off · 1..10 = alert at strength 1..10 (from hapticStrength()).
+// To add a device, add an entry to DEVICES below. Every layer (web here, native Java
+// BleManager) speaks the SAME 0/1..10 intent; only encode() differs per device.
+const BLE_ALERT = 0x01, BLE_CLEAR = 0x00;   // intent values passed to bleSend()
+
+const DEVICES = {
+  // Custom Arduino/ESP32 firmware — Nordic UART, one command byte (0x00 off, 0x01..0x0A).
+  // UUIDs MUST match the Arduino sketch (arduino/norisugoshi_ble/).
+  arduino: {
+    label: "Norisugoshi band",
+    namePrefix: "Norisugoshi",
+    service: "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
+    chars: ["6e400002-b5a3-f393-e0a9-e50e24dcca9e"], // the writable command characteristic(s)
+    momentary: false,                                // persistent on/off; strength 0 turns it off
+    // → array of { characteristic, value:Uint8Array } writes to perform for this signal
+    encode(strength){
+      const byte = strength <= 0 ? BLE_CLEAR : Math.min(10, Math.max(1, strength));
+      return [{ characteristic: this.chars[0], value: Uint8Array.of(byte) }];
+    },
+  },
+  // Pavlok 3 — commercial device. CONFIRMED on-device (2026-07-09, nRF Connect on Pavlok-3-E64B):
+  // custom service 156e1000-… holds short-form stimulus characteristics:
+  //   vibe 0x1001, beep 0x1002, zap 0x1003 (we use vibe only). The vibrate is a MOMENTARY pulse
+  // (no persistent "on"), so strength 0 (off) is a no-op — nothing to clear.
+  // ⚠️ PAYLOAD still being confirmed. The device did NOT buzz on the old [count,level,on,off]
+  //    bytes — likely it needs BONDING, or a different payload (single intensity byte?). Once the
+  //    winning nRF Connect write is known, set encode() below to match it exactly.
+  pavlok: {
+    label: "Pavlok 3",
+    namePrefix: "Pavlok",
+    service: "156e1000-a300-4fea-897b-86f698d74461",        // confirmed: primary stimulus service
+    chars: ["00001001-0000-1000-8000-00805f9b34fb"],        // confirmed: vibrate (0x1001)
+    momentary: true,
+    encode(strength){
+      if (strength <= 0) return [];                         // momentary pulse: nothing to turn off
+      const level = Math.round(Math.min(10, Math.max(1, strength)) / 10 * 255); // 1..10 → 0..0xff
+      // TODO(confirm payload): current guess [count, level, dur_on/20, dur_off/20].
+      return [{ characteristic: this.chars[0], value: Uint8Array.of(1, level, 20, 5) }];
+    },
+  },
+};
+// True 128-bit UUIDs only (skips not-yet-known `null` services) — for scan filters / access lists.
+const isUuid = (s) => typeof s === "string" && /^[0-9a-f]{8}-[0-9a-f-]+$/i.test(s);
+const bleServices = () => Object.values(DEVICES).map(d => d.service).filter(isUuid);
+const deviceByName = (name) => Object.keys(DEVICES).find(k =>
+  name && DEVICES[k].namePrefix && name.startsWith(DEVICES[k].namePrefix));
 
 // ============================================================ STATE
 const S = {
@@ -530,7 +590,7 @@ const S = {
   missCount: 0,        // consecutive polls where our train wasn't in the feed
   lastSeen: null,      // last known data for our train
   altOpen: false,      // user manually opened the switch-train picker
-  ble: { device: null, char: null, deviceId: null },
+  ble: { device: null, kind: null, chars: null, deviceId: null }, // kind = key into DEVICES; chars = {uuid:GATTChar} (web)
   sessionStart: 0,     // Date.now() at 追跡開始 — the JS 3h auto-stop anchor
   rideFrom: "",        // boarding station title, captured at 追跡開始 (train moves during the ride)
   rideArrived: false,  // did this ride reach the destination? (set in arrived())
@@ -618,11 +678,42 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet()
 // vibration amplitude). 0x00 stays "off". Default 7 — strong enough to wake, not painful.
 function hapticStrength(){ return Math.min(10, Math.max(1, parseInt(localStorage.getItem(HAPTIC_KEY) || "7", 10))); }
 function setHapticStrength(v){ localStorage.setItem(HAPTIC_KEY, String(v)); $("hapVal").textContent = v; }
+// A wrist device is connected if we hold GATT characteristics (web) or a native deviceId.
+function bleConnected(){ return !!(S.ble.deviceId || (S.ble.chars && Object.keys(S.ble.chars).length)); }
+function bleReset(){ S.ble.device = null; S.ble.kind = null; S.ble.chars = null; S.ble.deviceId = null; }
 function hapticPreview(){
   const s = hapticStrength();
-  if (S.ble.char || S.ble.deviceId){ bleSend(s); setTimeout(() => bleSend(BLE_CLEAR), 1200); }
+  if (bleConnected()){ bleSend(s); setTimeout(() => bleSend(BLE_CLEAR), 1200); }
   else if (IS_NATIVE && _HP){ _HP.vibrate({ duration: 120 + s * 80 }).catch(()=>{}); }
   else if (navigator.vibrate){ navigator.vibrate(120 + s * 80); }
+}
+
+// ============================================================ PAVLOK (cloud)
+// Alternative wrist device: the Pavlok 3, fired via its official cloud API. We couldn't drive
+// it over raw BLE (the fire-command is a proprietary write only the official app makes), but
+// POST /stimulus/send works and the API sends CORS headers, so the browser calls it directly.
+// Delivery is relayed by the official Pavlok app (must be installed, signed in, band connected).
+// Momentary vibrate, so there's no "off". Fires alongside the BLE channel — harmless if unused.
+const PAVLOK_TOKEN_KEY = "norisugoshi_pavlok_token";  // user's Pavlok API Bearer token (JWT)
+const PAVLOK_URL = "https://api.pavlok.com/api/v5/stimulus/send";
+function pavlokToken(){ return (localStorage.getItem(PAVLOK_TOKEN_KEY) || "").trim(); }
+function savePavlokToken(){ localStorage.setItem(PAVLOK_TOKEN_KEY, ($("pavlokToken").value || "").trim()); }
+// strength 1–10 → stimulusValue 10–100. No-op when no token is set or strength ≤ 0 (off).
+async function pavlokCloudSend(strength){
+  const token = pavlokToken();
+  if (!token || strength <= 0) return;
+  const value = Math.min(100, Math.max(1, Math.round(strength * 10)));
+  try {
+    await fetch(PAVLOK_URL, {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ stimulus: { stimulusType: "vibe", stimulusValue: value } }),
+    });
+  } catch(e){ console.warn("Pavlok cloud send failed", e.message); }
+}
+async function pavlokTest(){
+  if (!pavlokToken()){ alert(tt("先に Pavlok トークンを入力してください。", "Enter your Pavlok token first.")); return; }
+  await pavlokCloudSend(hapticStrength());
 }
 const tail = (s) => (s || "").split(".").pop();
 function showErr(msg){ const e=$("err"); if(!msg){e.classList.remove("show");return;} e.textContent=msg; e.classList.add("show"); }
@@ -673,6 +764,7 @@ function onReady(){
   applyLang();                                         // sync the language control + option/attr labels
   $("hapRange").value = hapticStrength();
   $("hapVal").textContent = hapticStrength();
+  if ($("pavlokToken")) $("pavlokToken").value = pavlokToken();   // restore saved Pavlok token
 }
 // follow the device locale live while the preference is "auto"
 window.addEventListener("languagechange", () => { if (langPref() === "auto") applyLang(); });
@@ -1546,7 +1638,7 @@ function ensureSignaled(stops){
     dest: tail(S.destId), alertStopsBefore: S.alertN, stopsAtAlert: stops,
     alertSource: "js",          // fired by the foreground JS render loop (native adds "poll"/"backstop")
     delaySec: (S.train && S.train["odpt:delay"]) || 0,
-    ble: !!(S.ble.char || S.ble.deviceId),   // native uses deviceId, web uses char
+    ble: bleConnected(),   // native uses deviceId, web uses cached GATT characteristics
   };
   signal();                     // notification + beep + BLE
   startTimer();
@@ -1594,6 +1686,8 @@ function signal(){
   beep();
   // 4) BLE haptic device — command byte = the user's chosen strength (1–10)
   bleSend(hapticStrength());
+  // 5) Pavlok wristband via its cloud API (no-op unless a Pavlok token is set)
+  pavlokCloudSend(hapticStrength());
 }
 
 // Escalating phone vibration: stronger/longer the closer the train gets.
@@ -1647,22 +1741,23 @@ async function connectBLE(){
   }
   try{
     setBlePill(false, "scanning…");
+    // Offer any supported device: match by advertised name (works even before we know a
+    // device's service UUID) and grant access to every known service so we can probe them.
     const dev = await navigator.bluetooth.requestDevice({
-      filters: [{ services:[BLE_SERVICE] }],
-      optionalServices:[BLE_SERVICE],
+      filters: Object.values(DEVICES).filter(d => d.namePrefix).map(d => ({ namePrefix: d.namePrefix })),
+      optionalServices: bleServices(),
     });
     const srv = await dev.gatt.connect();
-    const svc = await srv.getPrimaryService(BLE_SERVICE);
-    const ch  = await svc.getCharacteristic(BLE_CMD);
-    S.ble.device = dev; S.ble.char = ch;
-    dev.addEventListener("gattserverdisconnected", ()=>{ S.ble.char=null; setBlePill(false); });
-    setBlePill(true, dev.name||"device");
+    const { kind, chars } = await bleDetect(srv, dev.name);   // figure out which device this is
+    S.ble.device = dev; S.ble.kind = kind; S.ble.chars = chars;
+    dev.addEventListener("gattserverdisconnected", () => { bleReset(); setBlePill(false); });
+    setBlePill(true, DEVICES[kind].label);
     $("btnBleTest").disabled = false;
   }catch(e){
     setBlePill(false);
     if (e.name === "NotFoundError"){
       alert("No device selected / none found.\n\nChecklist:\n"
-        + "• Arduino powered & Serial shows \"advertising as 'Norisugoshi'\"\n"
+        + "• Wrist device powered on (Norisugoshi band advertising, or Pavlok awake & not held by its own app)\n"
         + "• Phone Bluetooth is ON\n"
         + "• Android only: turn ON Location, and allow this browser's \"Nearby devices\"/Location permission");
     } else {
@@ -1671,27 +1766,48 @@ async function connectBLE(){
   }
 }
 
+// Identify the connected GATT server: try each known device's service, cache its writable
+// characteristics. Returns { kind, chars:{uuid:GATTCharacteristic} } or throws if none match.
+async function bleDetect(server, advName){
+  // Prefer the device whose name we recognised, then fall back to probing every known service.
+  const order = [deviceByName(advName), ...Object.keys(DEVICES)].filter((k, i, a) => k && a.indexOf(k) === i);
+  for (const kind of order){
+    const d = DEVICES[kind];
+    if (!isUuid(d.service)) continue;               // service still unknown (e.g. Pavlok TODO) — can't probe
+    try {
+      const svc = await server.getPrimaryService(d.service);
+      const chars = {};
+      for (const cu of d.chars) chars[cu] = await svc.getCharacteristic(cu);
+      return { kind, chars };
+    } catch(_){ /* not this device — try the next */ }
+  }
+  throw new Error("Connected, but no supported wrist-device profile was found on it.");
+}
+
 async function connectBLE_native(){
   // ---- @capacitor-community/bluetooth-le (native Android) ----
   if (!_BLE){ alert("BLE plugin not loaded — run npm install + npx cap sync and rebuild."); return; }
   try {
     setBlePill(false, "scanning…");
     await _BLE.initialize();
-    const result = await _BLE.requestDevice({ services:[BLE_SERVICE] });
+    // Show every supported device; grant access to all known services, then detect by name.
+    const result = await _BLE.requestDevice({ optionalServices: bleServices() });
     const deviceId = result?.device?.deviceId ?? result?.deviceId;
+    const name = result?.device?.name ?? result?.name ?? "";
     if (!deviceId) throw new Error("No device returned from requestDevice");
     await _BLE.connect({ deviceId });
-    S.ble.deviceId = deviceId;
+    const kind = deviceByName(name) || "arduino";   // native writes by UUID; kind picks the protocol
+    S.ble.deviceId = deviceId; S.ble.kind = kind;
     // listen for disconnect
     _BLE.addListener("onDisconnected", (ev) => {
-      if (ev?.deviceId === deviceId){ S.ble.deviceId=null; setBlePill(false); }
+      if (ev?.deviceId === deviceId){ bleReset(); setBlePill(false); }
     }).catch(()=>{});
-    setBlePill(true, result?.device?.name ?? result?.name ?? "device");
+    setBlePill(true, DEVICES[kind]?.label ?? name ?? "device");
     $("btnBleTest").disabled = false;
   } catch(e) {
     setBlePill(false);
     alert("BLE connect failed: " + e.message + "\n\nChecklist:\n"
-      + "• Arduino powered & advertising as 'Norisugoshi'\n"
+      + "• Wrist device powered on (Norisugoshi band advertising, or Pavlok awake)\n"
       + "• Phone Bluetooth ON\n"
       + "• Granted 'Nearby devices' permission when prompted");
   }
@@ -1701,24 +1817,35 @@ function setBlePill(on,name){
   p.textContent = on ? `🟢 ${name||"connected"}` : "not connected";
   if (!on) $("btnBleTest").disabled = true;
 }
-// Write one command byte to the device (0x01 = alert/on, 0x00 = clear/off).
+// Send a signal to the connected device: value 0 = clear/off, 1..10 = alert strength.
+// The connected device's encode() turns that intent into its own characteristic write(s).
 async function bleSend(value){
+  const kind = S.ble.kind;
+  if (!kind || !DEVICES[kind]) return;
+  const dev = DEVICES[kind];
+  const writes = dev.encode(value);
   if (IS_NATIVE && _BLE && S.ble.deviceId){
-    try {
-      // Capacitor bridge transfers binary as base64
-      const b64 = btoa(String.fromCharCode(value));
-      await _BLE.write({ deviceId:S.ble.deviceId, service:BLE_SERVICE, characteristic:BLE_CMD, value:b64 });
-    } catch(e){ console.warn("BLE write failed", e.message); }
+    for (const w of writes){
+      try {
+        // Capacitor bridge transfers binary as base64
+        const b64 = btoa(String.fromCharCode.apply(null, w.value));
+        await _BLE.write({ deviceId:S.ble.deviceId, service:dev.service, characteristic:w.characteristic, value:b64 });
+      } catch(e){ console.warn("BLE write failed", e.message); }
+    }
     return;
   }
-  // Web Bluetooth fallback
-  if (!S.ble.char) return;
-  try { await S.ble.char.writeValue(Uint8Array.of(value)); }
-  catch(e){ console.warn("BLE write failed", e.message); }
+  // Web Bluetooth fallback — write each payload to its cached GATT characteristic.
+  if (!S.ble.chars) return;
+  for (const w of writes){
+    const ch = S.ble.chars[w.characteristic];
+    if (!ch) continue;
+    try { await ch.writeValue(w.value); }
+    catch(e){ console.warn("BLE write failed", e.message); }
+  }
 }
 // Manual test from the setup screen: buzz at the chosen strength for 1.5s to verify wiring.
 async function bleTest(){
-  if (!S.ble.char){ alert(tt("先にデバイスを接続してください。", "Connect a device first.")); return; }
+  if (!bleConnected()){ alert(tt("先にデバイスを接続してください。", "Connect a device first.")); return; }
   await bleSend(hapticStrength());
   setTimeout(()=>bleSend(BLE_CLEAR), 1500);
 }
