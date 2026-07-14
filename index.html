@@ -339,24 +339,6 @@
         <button class="btn ghost icon-btn" style="margin-left:auto" onclick="connectBLE()"><span class="ja">接続</span><span class="en">Connect</span></button>
         <button class="btn ghost icon-btn" id="btnBleTest" onclick="bleTest()" disabled><span class="ja">テスト</span><span class="en">Test</span></button>
       </div>
-      <div class="ble-line" style="margin-top:.5rem">
-        <span style="white-space:nowrap">Pavlok<span class="ja"> (クラウド)</span><span class="en"> (cloud)</span></span>
-        <input id="pavlokToken" type="password" autocomplete="off" spellcheck="false"
-               placeholder="Bearer token" oninput="savePavlokToken()"
-               style="flex:1; min-width:0; margin:0 .4rem; padding:.3rem .5rem; font-size:.8rem">
-        <button class="btn ghost icon-btn" onclick="pavlokTest()"><span class="ja">テスト</span><span class="en">Test</span></button>
-      </div>
-      <details class="info">
-        <summary><span class="ja">Pavlok トークンの取得</span><span class="en">Get a Pavlok token</span></summary>
-        <div class="body ja">
-          公式 Pavlok アプリでバンドを接続しておく必要があります（アプリがブザーを中継します）。<br>
-          トークンは Pavlok のメール＋パスワードでログインして取得します（Google 連携のみの場合は先にパスワードを設定）。
-        </div>
-        <div class="body en">
-          The official Pavlok app must be installed, signed in, and connected to the band — it relays the buzz.<br>
-          Get the token by logging in with your Pavlok email + password (Google-only accounts: set a password first).
-        </div>
-      </details>
       <details class="info">
         <summary><span class="ja">接続できないとき</span><span class="en">Connection help</span></summary>
         <div class="body ja">
@@ -396,6 +378,16 @@
       <div class="tv" id="timerVal">0.0s</div>
       <button class="btn primary mt" onclick="stopTimer()"><span class="ja">起きた！</span><span class="en">I'm awake</span></button>
       <div class="tr" id="timerRes"></div>
+    </div>
+
+    <!-- post-awake feedback (日本語のみ) — 通知のタイミングは適切だったか -->
+    <div class="banner" id="feedbackBanner" style="border-left:4px solid var(--accent)">
+      <span class="ja">通知のタイミングは？</span>
+      <div style="display:flex; gap:6px; margin-left:auto">
+        <button class="btn ghost icon-btn" onclick="awakeFeedback('early')"><span class="ja">早すぎ</span></button>
+        <button class="btn ghost icon-btn" onclick="awakeFeedback('ontime')"><span class="ja">ちょうど</span></button>
+        <button class="btn ghost icon-btn" onclick="awakeFeedback('late')"><span class="ja">遅い</span></button>
+      </div>
     </div>
 
     <!-- LED departure board — the signature -->
@@ -687,40 +679,21 @@ function hapticPreview(){
   else if (IS_NATIVE && _HP){ _HP.vibrate({ duration: 120 + s * 80 }).catch(()=>{}); }
   else if (navigator.vibrate){ navigator.vibrate(120 + s * 80); }
 }
-
-// ============================================================ PAVLOK (cloud)
-// Alternative wrist device: the Pavlok 3, fired via its official cloud API. We couldn't drive
-// it over raw BLE (the fire-command is a proprietary write only the official app makes), but
-// POST /stimulus/send works and the API sends CORS headers, so the browser calls it directly.
-// Delivery is relayed by the official Pavlok app (must be installed, signed in, band connected).
-// Momentary vibrate, so there's no "off". Fires alongside the BLE channel — harmless if unused.
-const PAVLOK_TOKEN_KEY = "norisugoshi_pavlok_token";  // user's Pavlok API Bearer token (JWT)
-const PAVLOK_URL = "https://api.pavlok.com/api/v5/stimulus/send";
-function pavlokToken(){ return (localStorage.getItem(PAVLOK_TOKEN_KEY) || "").trim(); }
-function savePavlokToken(){ localStorage.setItem(PAVLOK_TOKEN_KEY, ($("pavlokToken").value || "").trim()); }
-// strength 1–10 → stimulusValue 10–100. No-op when no token is set or strength ≤ 0 (off).
-async function pavlokCloudSend(strength){
-  const token = pavlokToken();
-  if (!token || strength <= 0) return;
-  const value = Math.min(100, Math.max(1, Math.round(strength * 10)));
-  try {
-    await fetch(PAVLOK_URL, {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
-      body: JSON.stringify({ stimulus: { stimulusType: "vibe", stimulusValue: value } }),
-    });
-  } catch(e){ console.warn("Pavlok cloud send failed", e.message); }
-}
-async function pavlokTest(){
-  if (!pavlokToken()){ alert(tt("先に Pavlok トークンを入力してください。", "Enter your Pavlok token first.")); return; }
-  await pavlokCloudSend(hapticStrength());
-}
 const tail = (s) => (s || "").split(".").pop();
 function showErr(msg){ const e=$("err"); if(!msg){e.classList.remove("show");return;} e.textContent=msg; e.classList.add("show"); }
 function stationTitle(line, id){
   const r = S.railways[line];
   if (r && r.titleById[id]) return r.titleById[id];
   return tail(id);
+}
+// Official station code, e.g. Kuramae on the Asakusa line = "A17" (line letter + station index,
+// zero-padded to 2 digits). Returns "" when the line has no lineCode or the station is unknown.
+function stationCode(line, id){
+  const r = S.railways[line];
+  if (!r || !r.code) return "";
+  const pos = r.occ[id];
+  if (!pos || !pos.length) return "";
+  return r.code + String(r.order[pos[0]].idx).padStart(2, "0");
 }
 // Fetch with auto-retry. Free hosts (e.g. Render) occasionally fail to route a
 // request to the instance and return a transient 404/5xx, or the instance is
@@ -764,7 +737,6 @@ function onReady(){
   applyLang();                                         // sync the language control + option/attr labels
   $("hapRange").value = hapticStrength();
   $("hapVal").textContent = hapticStrength();
-  if ($("pavlokToken")) $("pavlokToken").value = pavlokToken();   // restore saved Pavlok token
 }
 // follow the device locale live while the preference is "auto"
 window.addEventListener("languagechange", () => { if (langPref() === "auto") applyLang(); });
@@ -795,6 +767,7 @@ async function init(){
         ja: r["dc:title"] || tail(id),
         en: (r["odpt:railwayTitle"]||{}).en || tail(id),
         order, occ, titleById,
+        code: r["odpt:lineCode"] || "",   // line letter for station codes (Asakusa "A" → Kuramae idx17 = A17)
         // deterministic direction mapping: ascending = increasing station index = +1.
         // Always present in ODPT metadata, so direction never depends on live traffic.
         asc:  r["odpt:ascendingRailDirection"]  || null,
@@ -873,7 +846,7 @@ function renderTrainPicker(){
     const isLocal = /\.Local$/.test(t["odpt:trainType"]||"");
     const typeTag = `<span class="badge ${isLocal?'gray':'amber'}" style="font-size:10px;padding:1px 7px">${isLocal?tt('各停','Local'):trainTypeLabel(t)}</span>`;
     return `<div class="train-opt" data-no="${no}" onclick="pickTrain('${no}')">
-        <span class="train-no">${no}</span>
+        <span class="train-no">${stationCode(S.line, from) || no}</span>
         <div class="train-meta">
           <div class="pos">${posTxt} ${typeTag}</div>
           <div class="sub">${destTxt}${delay>0?` · ${delay}s${tt("遅延","delay")}`:""}</div>
@@ -1300,7 +1273,7 @@ function stopTracking(){
   bleSend(BLE_CLEAR);                  // make sure the device is left off
   if (IS_NATIVE && _FG) { try { _FG.stopForegroundService(); } catch(_){} }
   $("liveDot").style.display="none";
-  ["alertBanner","arriveBanner","warnBanner","timer"].forEach(id=>$(id).classList.remove("show"));
+  ["alertBanner","arriveBanner","warnBanner","timer","feedbackBanner"].forEach(id=>$(id).classList.remove("show"));
   S.altOpen=false; updateSwitchBtn(); hideAlts();
   $("trackView").style.display="none";
   $("setupView").style.display="block";
@@ -1686,8 +1659,6 @@ function signal(){
   beep();
   // 4) BLE haptic device — command byte = the user's chosen strength (1–10)
   bleSend(hapticStrength());
-  // 5) Pavlok wristband via its cloud API (no-op unless a Pavlok token is set)
-  pavlokCloudSend(hapticStrength());
 }
 
 // Escalating phone vibration: stronger/longer the closer the train gets.
@@ -1879,6 +1850,22 @@ function stopTimer(atMs){
   $("timerRes").style.display="none";
   updateExportBtn();
   S.t0=null;
+  // post-awake feedback (日本語のみ): ask whether the alert timing felt right, tag the record
+  S.feedbackAwakeAt = rec.awakeAt;
+  if (LANG() === "ja") $("feedbackBanner").classList.add("show");
+}
+
+// Tag the just-saved response record with the user's timing judgement
+// ('early' | 'ontime' | 'late'), then dismiss the prompt. JA-only, web build.
+function awakeFeedback(timing){
+  $("feedbackBanner").classList.remove("show");
+  const at = S.feedbackAwakeAt; if (!at) return;
+  const log = loadLog();
+  for (let i = log.length - 1; i >= 0; i--){
+    if (log[i].awakeAt === at){ log[i].alertTiming = timing; break; }
+  }
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch(_){}
+  S.feedbackAwakeAt = null;
 }
 
 // ── ride history (user-facing; separate from the response-time research log) ──
@@ -1941,7 +1928,7 @@ function updateExportBtn(){
 function exportLog(){
   const log = loadLog();
   if (!log.length){ alert(tt("まだ記録がありません。", "No response times logged yet.")); return; }
-  const cols = ["awakeAt","responseSec","line","train","trainType","dest","alertStopsBefore","stopsAtAlert","alertSource","delaySec","ble"];
+  const cols = ["awakeAt","responseSec","line","train","trainType","dest","alertStopsBefore","stopsAtAlert","alertSource","delaySec","ble","alertTiming"];
   const csv = [cols.join(",")]
     .concat(log.map(r => cols.map(c => { const v = r[c]; return /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : (v ?? ""); }).join(",")))
     .join("\r\n");
