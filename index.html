@@ -385,14 +385,14 @@
       <div class="tr" id="timerRes"></div>
     </div>
 
-    <!-- post-awake feedback (日本語のみ) — 通知のタイミングは適切だったか -->
+    <!-- post-awake feedback — 通知のタイミングは適切だったか -->
     <div class="banner" id="feedbackBanner" style="border-left:4px solid var(--accent); flex-direction:column; align-items:stretch; gap:8px">
       <div style="display:flex; align-items:center; gap:10px">
-        <span class="ja">通知のタイミングは？</span>
+        <span><span class="ja">通知のタイミングは？</span><span class="en">Alert timing?</span></span>
         <div style="display:flex; gap:6px; margin-left:auto">
-          <button class="btn ghost icon-btn" onclick="awakeFeedback('early')"><span class="ja">早すぎ</span></button>
-          <button class="btn ghost icon-btn" onclick="awakeFeedback('perfect')"><span class="ja">ちょうど</span></button>
-          <button class="btn ghost icon-btn" onclick="awakeFeedback('late')"><span class="ja">遅い</span></button>
+          <button class="btn ghost icon-btn" onclick="awakeFeedback('early')"><span class="ja">早すぎ</span><span class="en">Early</span></button>
+          <button class="btn ghost icon-btn" onclick="awakeFeedback('perfect')"><span class="ja">ちょうど</span><span class="en">Perfect</span></button>
+          <button class="btn ghost icon-btn" onclick="awakeFeedback('late')"><span class="ja">遅い</span><span class="en">Late</span></button>
         </div>
       </div>
       <details class="info" style="margin:0">
@@ -401,6 +401,11 @@
           <b>早すぎ</b>：通知予定の駅に<b>到着する前</b>に通知が鳴った<br>
           <b>ちょうど</b>：通知予定の駅に<b>到着した後</b>に通知が鳴った<br>
           <b>遅い</b>：通知予定の駅を<b>発車した（通り過ぎた）後</b>に通知が鳴った
+        </div>
+        <div class="body en">
+          <b>Early</b>: alert sounded <b>before reaching</b> the notification station<br>
+          <b>Perfect</b>: alert sounded <b>after reaching</b> the notification station<br>
+          <b>Late</b>: alert sounded <b>after leaving</b> (passing) the notification station
         </div>
       </details>
     </div>
@@ -1874,14 +1879,14 @@ function stopTimer(atMs){
   $("timerRes").style.display="none";
   updateExportBtn();
   S.t0=null;
-  // post-awake feedback (日本語のみ): ask whether the alert timing felt right, tag the record
+  // post-awake feedback: ask whether the alert timing felt right, tag the record
   S.feedbackAwakeAt = rec.awakeAt;
-  if (LANG() === "ja") $("feedbackBanner").classList.add("show");
+  $("feedbackBanner").classList.add("show");
 }
 
 // Tag the just-saved response record with the user's timing judgement
 // ('early' = before reaching the alert station · 'perfect' = after reaching it ·
-// 'late' = after departing it), then dismiss the prompt. JA-only, web build.
+// 'late' = after departing it), then dismiss the prompt.
 function awakeFeedback(timing){
   $("feedbackBanner").classList.remove("show");
   const at = S.feedbackAwakeAt; if (!at) return;
