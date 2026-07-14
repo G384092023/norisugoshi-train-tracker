@@ -128,6 +128,11 @@
   .train-opt.sel  { border-color:var(--accent); background:var(--warn-bg); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
   .train-no { font-weight:700; font-size:13.5px; background:var(--ink); color:var(--bg);
               border-radius:7px; padding:4px 9px; font-variant-numeric:tabular-nums; flex-shrink:0; }
+  /* station-number roundel — coloured ring in the line's official colour, like real signage */
+  .stn-code { display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box;
+              min-width:40px; height:40px; padding:0 5px; border:3px solid var(--c,var(--ink));
+              border-radius:50%; font-weight:800; font-size:13px; color:var(--ink); background:var(--bg);
+              font-variant-numeric:tabular-nums; flex-shrink:0; line-height:1; }
   .train-meta { font-size:13px; line-height:1.45; flex:1; min-width:0; overflow-wrap:break-word; word-break:break-word; }
   .train-meta .pos { font-weight:600; }
   .train-meta .sub { color:var(--ink2); font-size:12px; }
@@ -381,23 +386,13 @@
     </div>
 
     <!-- post-awake feedback (日本語のみ) — 通知のタイミングは適切だったか -->
-    <div class="banner" id="feedbackBanner" style="border-left:4px solid var(--accent); flex-direction:column; align-items:stretch; gap:8px">
-      <div style="display:flex; align-items:center; gap:10px">
-        <span class="ja">通知のタイミングは？</span>
-        <div style="display:flex; gap:6px; margin-left:auto">
-          <button class="btn ghost icon-btn" onclick="awakeFeedback('early')"><span class="ja">早すぎ</span></button>
-          <button class="btn ghost icon-btn" onclick="awakeFeedback('perfect')"><span class="ja">ちょうど</span></button>
-          <button class="btn ghost icon-btn" onclick="awakeFeedback('late')"><span class="ja">遅い</span></button>
-        </div>
+    <div class="banner" id="feedbackBanner" style="border-left:4px solid var(--accent)">
+      <span class="ja">通知のタイミングは？</span>
+      <div style="display:flex; gap:6px; margin-left:auto">
+        <button class="btn ghost icon-btn" onclick="awakeFeedback('early')"><span class="ja">早すぎ</span></button>
+        <button class="btn ghost icon-btn" onclick="awakeFeedback('perfect')"><span class="ja">ちょうど</span></button>
+        <button class="btn ghost icon-btn" onclick="awakeFeedback('late')"><span class="ja">遅い</span></button>
       </div>
-      <details class="info" style="margin:0">
-        <summary><span class="ja">それぞれの意味</span></summary>
-        <div class="body ja">
-          <b>早すぎ</b>：通知予定の駅に<b>到着する前</b>に通知が鳴った<br>
-          <b>ちょうど</b>：通知予定の駅に<b>到着した後</b>に通知が鳴った<br>
-          <b>遅い</b>：通知予定の駅を<b>発車した（通り過ぎた）後</b>に通知が鳴った
-        </div>
-      </details>
     </div>
 
     <!-- LED departure board — the signature -->
@@ -705,6 +700,14 @@ function stationCode(line, id){
   if (!pos || !pos.length) return "";
   return r.code + String(r.order[pos[0]].idx).padStart(2, "0");
 }
+// HTML for a station-number roundel (colour ring = the line colour). Falls back to the
+// train-number pill when the line has no station code.
+function stationBadge(line, id, fallbackNo){
+  const c = stationCode(line, id);
+  if (!c) return `<span class="train-no">${fallbackNo}</span>`;
+  const col = (S.railways[line] || {}).color;
+  return `<span class="stn-code"${col ? ` style="--c:${col}"` : ""}>${c}</span>`;
+}
 // Fetch with auto-retry. Free hosts (e.g. Render) occasionally fail to route a
 // request to the instance and return a transient 404/5xx, or the instance is
 // waking from sleep. The next request almost always succeeds, so we retry a few
@@ -778,6 +781,7 @@ async function init(){
         en: (r["odpt:railwayTitle"]||{}).en || tail(id),
         order, occ, titleById,
         code: r["odpt:lineCode"] || "",   // line letter for station codes (Asakusa "A" → Kuramae idx17 = A17)
+        color: r["odpt:color"] || "",     // official line colour (e.g. Asakusa #FF535F) for roundels/labels
         // deterministic direction mapping: ascending = increasing station index = +1.
         // Always present in ODPT metadata, so direction never depends on live traffic.
         asc:  r["odpt:ascendingRailDirection"]  || null,
@@ -802,7 +806,7 @@ async function init(){
     sel.innerHTML = `<option value="">${tt("— 路線を選ぶ —", "— select a line —")}</option>` +
       alive.map(rw => {
         const r = S.railways[rw];
-        return `<option value="${rw}" data-ja="${r.ja}" data-en="${r.en}" data-n="${counts[rw]}">`
+        return `<option value="${rw}" data-ja="${r.ja}" data-en="${r.en}" data-n="${counts[rw]}"${r.color?` style="color:${r.color}"`:""}>`
              + `${tt(r.ja, r.en)} · ${counts[rw]}${tt("本", " trains")}</option>`;
       }).join("");
     S.lineCount = alive.length; $("s1sub").textContent = tt(`${alive.length} 路線`, `${alive.length} lines`);
@@ -856,7 +860,7 @@ function renderTrainPicker(){
     const isLocal = /\.Local$/.test(t["odpt:trainType"]||"");
     const typeTag = `<span class="badge ${isLocal?'gray':'amber'}" style="font-size:10px;padding:1px 7px">${isLocal?tt('各停','Local'):trainTypeLabel(t)}</span>`;
     return `<div class="train-opt" data-no="${no}" onclick="pickTrain('${no}')">
-        <span class="train-no">${stationCode(S.line, from) || no}</span>
+        ${stationBadge(S.line, from, no)}
         <div class="train-meta">
           <div class="pos">${posTxt} ${typeTag}</div>
           <div class="sub">${destTxt}${delay>0?` · ${delay}s${tt("遅延","delay")}`:""}</div>
