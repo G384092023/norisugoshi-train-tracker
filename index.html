@@ -381,13 +381,23 @@
     </div>
 
     <!-- post-awake feedback (日本語のみ) — 通知のタイミングは適切だったか -->
-    <div class="banner" id="feedbackBanner" style="border-left:4px solid var(--accent)">
-      <span class="ja">通知のタイミングは？</span>
-      <div style="display:flex; gap:6px; margin-left:auto">
-        <button class="btn ghost icon-btn" onclick="awakeFeedback('early')"><span class="ja">早すぎ</span></button>
-        <button class="btn ghost icon-btn" onclick="awakeFeedback('ontime')"><span class="ja">ちょうど</span></button>
-        <button class="btn ghost icon-btn" onclick="awakeFeedback('late')"><span class="ja">遅い</span></button>
+    <div class="banner" id="feedbackBanner" style="border-left:4px solid var(--accent); flex-direction:column; align-items:stretch; gap:8px">
+      <div style="display:flex; align-items:center; gap:10px">
+        <span class="ja">通知のタイミングは？</span>
+        <div style="display:flex; gap:6px; margin-left:auto">
+          <button class="btn ghost icon-btn" onclick="awakeFeedback('early')"><span class="ja">早すぎ</span></button>
+          <button class="btn ghost icon-btn" onclick="awakeFeedback('perfect')"><span class="ja">ちょうど</span></button>
+          <button class="btn ghost icon-btn" onclick="awakeFeedback('late')"><span class="ja">遅い</span></button>
+        </div>
       </div>
+      <details class="info" style="margin:0">
+        <summary><span class="ja">それぞれの意味</span></summary>
+        <div class="body ja">
+          <b>早すぎ</b>：通知予定の駅に<b>到着する前</b>に通知が鳴った<br>
+          <b>ちょうど</b>：通知予定の駅に<b>到着した後</b>に通知が鳴った<br>
+          <b>遅い</b>：通知予定の駅を<b>発車した（通り過ぎた）後</b>に通知が鳴った
+        </div>
+      </details>
     </div>
 
     <!-- LED departure board — the signature -->
@@ -743,7 +753,7 @@ window.addEventListener("languagechange", () => { if (langPref() === "auto") app
 async function init(){
   onReady();
   try {
-    $("s1sub").textContent = "loading…";
+    $("s1sub").textContent = tt("読込中", "loading…");
     // 1) all live trains  2) all railway metadata  (in parallel)
     const [allTrains, railways] = await Promise.all([
       getJSON("/api/trains"),
@@ -1856,7 +1866,8 @@ function stopTimer(atMs){
 }
 
 // Tag the just-saved response record with the user's timing judgement
-// ('early' | 'ontime' | 'late'), then dismiss the prompt. JA-only, web build.
+// ('early' = before reaching the alert station · 'perfect' = after reaching it ·
+// 'late' = after departing it), then dismiss the prompt. JA-only, web build.
 function awakeFeedback(timing){
   $("feedbackBanner").classList.remove("show");
   const at = S.feedbackAwakeAt; if (!at) return;
