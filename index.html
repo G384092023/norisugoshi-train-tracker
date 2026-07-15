@@ -133,6 +133,9 @@
               min-width:40px; height:40px; padding:0 5px; border:3px solid var(--c,var(--ink));
               border-radius:50%; font-weight:800; font-size:13px; color:var(--ink); background:var(--bg);
               font-variant-numeric:tabular-nums; flex-shrink:0; line-height:1; }
+  .stn-code.sm { min-width:0; height:22px; padding:0 7px; border-width:2px; border-radius:999px; font-size:11px; margin-right:6px; }
+  /* line badge — the line name in its official colour; works in native WebView (unlike <select> options) */
+  .line-chip { display:inline-flex; align-items:center; padding:2px 11px; border-radius:999px; font-size:12px; font-weight:700; }
   .train-meta { font-size:13px; line-height:1.45; flex:1; min-width:0; overflow-wrap:break-word; word-break:break-word; }
   .train-meta .pos { font-weight:600; }
   .train-meta .sub { color:var(--ink2); font-size:12px; }
@@ -326,6 +329,7 @@
       <div class="step-head">
         <div class="step-num" id="s3">3</div>
         <div class="step-title lk"><span class="ja">降車駅</span><span class="en">Your Destination</span></div>
+        <div class="step-sub" id="s3sub"></div>
       </div>
       <div class="dest-legend">
         <span><i class="leg-here"></i><span class="ja">現在地</span><span class="en">Current</span></span>
@@ -726,6 +730,22 @@ function stationBadge(line, id, fallbackNo){
   const col = (S.railways[line] || {}).color;
   return `<span class="stn-code"${col ? ` style="--c:${col}"` : ""}>${c}</span>`;
 }
+// Black/white text for legible contrast against a hex line colour.
+function contrastText(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+  if (!m) return "#fff";
+  const n = parseInt(m[1], 16), r = (n>>16)&255, g = (n>>8)&255, b = n&255;
+  return (0.299*r + 0.587*g + 0.114*b) > 150 ? "#111" : "#fff";
+}
+// A pill showing the line name in its official colour. Rendered as a normal element, so it
+// works in the native WebView (which ignores CSS colour on <select> <option>s).
+function lineChip(line){
+  const r = S.railways[line];
+  if (!r) return "";
+  const bg = r.color || "var(--ink)";
+  const fg = r.color ? contrastText(r.color) : "var(--bg)";
+  return `<span class="line-chip" style="background:${bg};color:${fg}">${tt(r.ja, r.en)}</span>`;
+}
 // Fetch with auto-retry. Free hosts (e.g. Render) occasionally fail to route a
 // request to the instance and return a transient 404/5xx, or the instance is
 // waking from sleep. The next request almost always succeeds, so we retry a few
@@ -859,7 +879,7 @@ async function onLine(){
 
 function renderTrainPicker(){
   const r = S.railways[S.line];
-  $("s2sub").textContent = tt(`${S.trains.length}本`, `${S.trains.length} trains`);
+  $("s2sub").innerHTML = `${lineChip(S.line)} <span style="color:var(--ink2)">${tt(`${S.trains.length}本`, `${S.trains.length} trains`)}</span>`;
   if (!S.trains.length){ $("trainList").innerHTML = `<p class="hint">${tt("この路線に運行中の列車がありません", "No trains running on this line")}</p>`; return; }
 
   // sort by current station index for a tidy list
@@ -1020,6 +1040,7 @@ function trainPath(r, t){
 
 function buildDestList(){
   const r = S.railways[S.line];
+  $("s3sub").innerHTML = lineChip(S.line);          // coloured line badge (native-friendly)
   const { node, dir, terminusNode } = trainPath(r, S.train);
   const termDelta = (terminusNode - node) * dir;     // stops from current to the train's last stop
 
@@ -1035,13 +1056,15 @@ function buildDestList(){
 
   $("destList").innerHTML = seq.map(i => {
     const o = r.order[i];
+    const code = stationCode(S.line, o.id);
+    const chip = code ? `<span class="stn-code sm" style="--c:${r.color || 'var(--ink)'}">${code}</span>` : "";
     const delta = (i - node) * dir;                  // 0 = here, >0 = ahead
     const isHere = delta === 0;
     const skipped = !isHere && !trainStops(o.id);    // express train passes without stopping
     if (skipped){
       // shown for context but not selectable — the train won't stop here
       return `<div class="dest-row passed" data-id="${o.id}">
-          <span class="ddot" style="background:var(--line);box-shadow:0 0 0 1px var(--line)"></span>${tt(o.ja, o.en)}
+          <span class="ddot" style="background:var(--line);box-shadow:0 0 0 1px var(--line)"></span>${chip}${tt(o.ja, o.en)}
           <span class="rtag" style="background:var(--surface2);color:var(--ink2)">${tt("通過","pass through")}</span>
         </div>`;
     }
@@ -1051,7 +1074,7 @@ function buildDestList(){
     const tag = isHere ? `<span class="rtag" style="background:var(--here-bg);color:var(--here)">${tt("現在地","Current")}</span>` : "";
     const dotStyle = `background:${color};box-shadow:0 0 0 1px ${color}`;
     return `<div class="dest-row ${cls}" data-id="${o.id}"${click} style="color:${color}">
-        <span class="ddot" style="${dotStyle}"></span>${tt(o.ja, o.en)}${tag}
+        <span class="ddot" style="${dotStyle}"></span>${chip}${tt(o.ja, o.en)}${tag}
       </div>`;
   }).join("");
 
