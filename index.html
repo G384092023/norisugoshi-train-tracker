@@ -822,6 +822,12 @@ const LINE_MARKS = {
   "odpt.Railway:JR-East.Joban":         "JR",
   "odpt.Railway:JR-East.Kawagoe":       "JR",
 };
+// Colours for lines ODPT ships without an odpt:color. Not from an operator spec — Toei
+// publishes no hex for the Sakura Tram — so this is taken from the pink of its own SA symbol
+// artwork. Prefer odpt:color whenever it appears; this is only a stand-in for a blank.
+const LINE_COLORS = {
+  "odpt.Railway:Toei.Arakawa": "#D75B80",   // Tokyo Sakura Tram (都電荒川線)
+};
 // Line-symbol roundel like the platform signage: squared ring in the official line
 // colour with the line symbol inside (Tobu Urban Park = light-blue "TD"). Lines with a
 // colour but no symbol get a solid colour square; lines with neither get a neutral ring.
@@ -909,7 +915,7 @@ async function init(){
         // step-1 roundel symbol only. Falls back to a hand-mapped symbol for lines ODPT
         // leaves uncoded — deliberately NOT `code`, whose indexes wouldn't line up (LINE_MARKS).
         mark: r["odpt:lineCode"] || LINE_MARKS[id] || "",
-        color: r["odpt:color"] || "",     // official line colour (e.g. Asakusa #FF535F) for roundels/labels
+        color: r["odpt:color"] || LINE_COLORS[id] || "",   // official line colour (e.g. Asakusa #FF535F) for roundels/labels
         // deterministic direction mapping: ascending = increasing station index = +1.
         // Always present in ODPT metadata, so direction never depends on live traffic.
         asc:  r["odpt:ascendingRailDirection"]  || null,
