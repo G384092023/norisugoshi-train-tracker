@@ -151,6 +151,7 @@
                border-radius:8px; font-weight:800; font-size:12.5px; color:var(--ink); background:var(--bg);
                flex-shrink:0; line-height:1; }
   .line-mark.fill { background:var(--c,var(--ink)); }
+  .line-mark.xs { min-width:24px; height:24px; border-width:2.5px; padding:0 4px; font-size:10px; }
   /* step-1 line picker — a button + collapsible list (roundels can't render inside <select> options) */
   .line-btn { width:100%; display:flex; align-items:center; gap:10px; font-size:15px; padding:8px 12px;
               border:1px solid var(--line); border-radius:var(--r-sm); background:var(--surface2);
@@ -183,12 +184,24 @@
   /* Ride history (Settings) — newest first, scrollable so "unlimited" stays tidy */
   .ride-list { display:flex; flex-direction:column; gap:6px; max-height:260px; overflow-y:auto; }
   .ride-list .empty { color:var(--ink2); font-size:12px; text-align:left; padding:4px 2px; }
+  /* summary across the kept rides — sits above the scrolling list, so it stays put */
+  .ride-sum { display:flex; gap:6px; margin-bottom:8px; }
+  .ride-sum .s-tile { flex:1; background:var(--surface2); border-radius:var(--r-sm); padding:6px 8px; min-width:0; }
+  .ride-sum .s-k { font-size:10px; color:var(--ink2); }
+  .ride-sum .s-v { font-size:15px; font-weight:800; font-variant-numeric:tabular-nums; }
   .ride-row { border:1px solid var(--line); border-radius:var(--r-sm); padding:8px 10px; background:var(--surface2); }
-  .ride-row .r-top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+  .ride-row .r-top { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+  .ride-row .r-head { display:flex; align-items:center; gap:7px; min-width:0; }
   .ride-row .r-line { font-weight:700; font-size:12.5px; min-width:0; overflow-wrap:break-word; word-break:break-word; }
   .ride-row .r-when { color:var(--ink2); font-size:10.5px; flex-shrink:0; font-variant-numeric:tabular-nums; }
-  .ride-row .r-route { font-size:12.5px; margin-top:2px; overflow-wrap:break-word; word-break:break-word; }
-  .ride-row .r-meta { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; font-size:10.5px; color:var(--ink2); }
+  /* the ride as a journey: boarding dot -> line-coloured spine -> hollow destination dot */
+  .ride-row .r-journey { display:grid; grid-template-columns:auto 1fr; gap:0 8px; align-items:center; margin-top:6px; }
+  .ride-row .r-dot { width:9px; height:9px; border-radius:50%; background:var(--c,var(--ink)); justify-self:center; }
+  .ride-row .r-dot.end { box-sizing:border-box; background:var(--bg); border:2.5px solid var(--c,var(--ink)); }
+  .ride-row .r-spine { width:3px; height:14px; background:var(--c,var(--ink)); opacity:.45; justify-self:center; }
+  .ride-row .r-stn { font-size:12.5px; overflow-wrap:break-word; word-break:break-word; }
+  .ride-row .r-stn em { font-style:normal; color:var(--ink2); font-size:11px; font-variant-numeric:tabular-nums; }
+  .ride-row .r-meta { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; font-size:10.5px; color:var(--ink2); align-items:center; }
   .ride-row .r-tag { padding:1px 7px; border-radius:999px; background:var(--surface); }
   .ride-row .r-tag.ok  { color:var(--ok);   background:var(--ok-bg); }
   .ride-row .r-tag.miss{ color:var(--danger);background:var(--danger-bg); }
@@ -521,6 +534,7 @@
 
     <div class="sec">
       <div class="sec-t"><span class="ja">履歴</span><span class="en">Ride history</span></div>
+      <div class="ride-sum" id="rideSum"></div>
       <div class="ride-list" id="rideList"></div>
       <div class="btn-row" style="margin-top:8px">
         <button class="btn ghost" id="btnClearRides" onclick="clearRideHistory()"><span class="ja">履歴を消去</span><span class="en">Clear history</span></button>
@@ -638,8 +652,10 @@ const S = {
   ble: { device: null, kind: null, chars: null, deviceId: null }, // kind = key into DEVICES; chars = {uuid:GATTChar} (web)
   sessionStart: 0,     // Date.now() at 追跡開始 — the JS 3h auto-stop anchor
   rideFrom: "",        // boarding station title, captured at 追跡開始 (train moves during the ride)
+  rideFromId: "",      // ...and its station id, so history can show the boarding station code
   rideArrived: false,  // did this ride reach the destination? (set in arrived())
   lastResponseSec: null, // most recent 起きた response time this ride (for the history row)
+  alertTiming: null,     // most recent 早すぎ/ちょうど/遅い rating this ride (for the history row)
   // response-time experiment
   t0: null, timerId: null, times: [], alertCtx: null,
 };
@@ -831,11 +847,13 @@ const LINE_COLORS = {
 // Line-symbol roundel like the platform signage: squared ring in the official line
 // colour with the line symbol inside (Tobu Urban Park = light-blue "TD"). Lines with a
 // colour but no symbol get a solid colour square; lines with neither get a neutral ring.
-function lineMark(line){
+// `extra` adds a size variant (e.g. "xs" in the ride history). Returns "" for a line whose
+// metadata we don't hold — a stored ride can outlive the railway's presence in the feed.
+function lineMark(line, extra){
   const r = S.railways[line];
   if (!r) return "";
   const c = r.color ? ` style="--c:${r.color}"` : "";
-  const sh = lineShape(line);
+  const sh = lineShape(line) + (extra ? " " + extra : "");
   if (r.mark) return `<span class="line-mark ${sh}"${c}>${r.mark}</span>`;
   return `<span class="line-mark ${sh}${r.color ? " fill" : ""}"${c}></span>`;
 }
@@ -1257,8 +1275,9 @@ async function startTracking(){
   S.alertN = parseInt($("selAlert").value,10);
   S.sessionStart = Date.now();     // anchors the 3h auto-stop
   S.rideFrom = stationTitle(S.line, S.train["odpt:fromStation"]);   // boarding station (for history)
+  S.rideFromId = S.train["odpt:fromStation"] || "";                 // ...and its id, for the station code
   S.rideArrived = false; S.lastResponseSec = null;
-  S.alertFired = false; S.alertAcked = false;
+  S.alertFired = false; S.alertAcked = false; S.alertTiming = null;
   S.missCount = 0; S.lastSeen = null; S.lastVibStop = null;
   S.altOpen = false; updateSwitchBtn();
   S.tracking = true;
@@ -2046,6 +2065,9 @@ function stopTimer(atMs){
 function awakeFeedback(timing){
   $("feedbackBanner").classList.remove("show");
   const at = S.feedbackAwakeAt; if (!at) return;
+  // keep a copy on the ride too: history summarises timing, and reading the research log
+  // from there would couple the two stores (they're deliberately separate)
+  S.alertTiming = timing;
   const log = loadLog();
   for (let i = log.length - 1; i >= 0; i--){
     if (log[i].awakeAt === at){ log[i].alertTiming = timing; break; }
@@ -2062,36 +2084,76 @@ function recordRide(){
   if (!S.sessionStart || !S.trainNo || !S.destId) return;
   const rec = {
     at: new Date().toISOString(),
+    // ids let the row draw its roundel/spine and station codes at render time; the ja/en names
+    // are snapshotted alongside so an old row still reads correctly if the line leaves the feed
+    lineId: S.line,
     line: (S.railways[S.line] && S.railways[S.line].ja) || tail(S.line),
+    lineEn: (S.railways[S.line] && S.railways[S.line].en) || tail(S.line),
     train: S.trainNo,
     trainType: tail((S.train && S.train["odpt:trainType"]) || "") || "Local",
     from: S.rideFrom || "—",
+    fromId: S.rideFromId || "",
     dest: stationTitle(S.line, S.destId),
+    destId: S.destId,
     arrived: !!S.rideArrived,
     alerted: !!(S.alertFired || S.alertAcked),
     responseSec: (typeof S.lastResponseSec === "number") ? S.lastResponseSec : null,
+    alertTiming: S.alertTiming || null,   // 'early' | 'perfect' | 'late', null if never rated
   };
   const rides = loadRides(); rides.push(rec);
   while (rides.length > RIDE_MAX) rides.shift();   // trim oldest — keep the most recent RIDE_MAX
   try { localStorage.setItem(RIDE_KEY, JSON.stringify(rides)); } catch(_){}
 }
+// Totals across the rides we still hold (capped at RIDE_MAX), so this reads "your recent
+// riding", not a lifetime stat.
+//
+// The middle tile scores the ALERT, not the ride: it's the share of rated rides you called
+// ちょうど. `arrived` can't do this job — it only says whether tracking ran to the
+// destination, so stopping early while still en route reads as a miss even when the alert
+// was perfect. Rides with no rating (never alerted, or the banner was ignored) are excluded
+// rather than counted against you, same as the average ignores rides with no response time.
+function rideSummary(rides){
+  const rated = rides.filter(r => r.alertTiming);
+  const perfect = rated.filter(r => r.alertTiming === "perfect").length;
+  const times = rides.map(r => r.responseSec).filter(v => typeof v === "number");
+  const avg = times.length ? (times.reduce((a,b) => a+b, 0) / times.length).toFixed(1) + "s" : "—";
+  const tile = (k,v) => `<div class="s-tile"><div class="s-k">${k}</div><div class="s-v">${v}</div></div>`;
+  return tile(tt("乗車", "Rides"), rides.length)
+       + tile(tt("ちょうど", "On time"), rated.length ? Math.round(perfect / rated.length * 100) + "%" : "—")
+       + tile(tt("平均反応", "Avg wake"), avg);
+}
 function renderRideHistory(){
   const el = $("rideList"); if (!el) return;
+  const sum = $("rideSum");
   const rides = loadRides().slice().reverse();   // newest first
   $("btnClearRides").disabled = rides.length === 0;
-  if (!rides.length){ el.innerHTML = `<div class="empty">${tt("まだ記録がありません。", "No rides yet.")}</div>`; return; }
+  if (!rides.length){
+    if (sum) sum.innerHTML = "";
+    el.innerHTML = `<div class="empty">${tt("まだ記録がありません。", "No rides yet.")}</div>`;
+    return;
+  }
+  if (sum) sum.innerHTML = rideSummary(rides);
   const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
   el.innerHTML = rides.map(r => {
     const d = new Date(r.at);
     const when = isNaN(d) ? "" : `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
-    const tags = [];
-    tags.push(`<span class="r-tag ${r.arrived?'ok':'miss'}">${r.arrived?tt('到着','Arrived'):tt('途中終了','Ended early')}</span>`);
-    if (r.alerted) tags.push(`<span class="r-tag">${tt('通知','Alerted')}${r.responseSec!=null?` · ${tt('反応','resp')} ${r.responseSec.toFixed(1)}s`:""}</span>`);
+    // rows written before lineId existed only kept the JA name: no roundel, no spine, no codes
+    const rw    = r.lineId ? S.railways[r.lineId] : null;
+    const mark  = r.lineId ? lineMark(r.lineId, "xs") : "";
+    const name  = esc(tt(r.line, r.lineEn || r.line));
+    const c     = rw && rw.color ? ` style="--c:${rw.color}"` : "";
+    const code  = id => { const s = (r.lineId && id) ? stationCode(r.lineId, id) : ""; return s ? ` <em>${esc(s)}</em>` : ""; };
+    const tags  = [`<span class="r-tag ${r.arrived?'ok':'miss'}">${r.arrived?tt('到着','Arrived'):tt('途中終了','Ended early')}</span>`];
+    if (r.alerted) tags.push(`<span class="r-tag">${tt('通知','Alerted')}${r.responseSec!=null?` · ${r.responseSec.toFixed(1)}s`:""}</span>`);
     else tags.push(`<span class="r-tag">${tt('通知なし','No alert')}</span>`);
     return `<div class="ride-row">
-        <div class="r-top"><span class="r-line">${esc(r.line)} · ${esc(r.train)}</span><span class="r-when">${when}</span></div>
-        <div class="r-route">${esc(r.from)} → ${esc(r.dest)}</div>
-        <div class="r-meta"><span>${esc(r.trainType)}</span>${tags.join("")}</div>
+        <div class="r-top"><span class="r-head">${mark}<span class="r-line">${name}</span></span><span class="r-when">${when}</span></div>
+        <div class="r-journey">
+          <span class="r-dot"${c}></span><span class="r-stn">${esc(r.from)}${code(r.fromId)}</span>
+          <span class="r-spine"${c}></span><span></span>
+          <span class="r-dot end"${c}></span><span class="r-stn">${esc(r.dest)}${code(r.destId)}</span>
+        </div>
+        <div class="r-meta"><span>${esc(r.trainType)} · ${esc(r.train)}</span>${tags.join("")}</div>
       </div>`;
   }).join("");
 }
