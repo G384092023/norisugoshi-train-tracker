@@ -752,14 +752,31 @@ function stationTitle(line, id){
   if (r && r.titleById[id]) return r.titleById[id];
   return tail(id);
 }
-// Official station code, e.g. Kuramae on the Asakusa line = "A17" (line letter + station index,
-// zero-padded to 2 digits). Returns "" when the line has no lineCode or the station is unknown.
+// Official station code, e.g. Kuramae on the Asakusa line = "A-17". Prefers the code ODPT
+// publishes on the station itself (odpt:stationCode, loaded per line by loadStationCodes) —
+// that's the real signage, including lines only partially numbered (JU ends at Omiya) and
+// per-operator formatting (Tobu "TS-01"). Falls back to deriving lineCode + station index
+// while the map hasn't loaded; "" when neither source knows a code.
 function stationCode(line, id){
   const r = S.railways[line];
-  if (!r || !r.code) return "";
+  if (!r) return "";
+  if (r.codeById) return r.codeById[id] || "";
+  if (!r.code) return "";
   const pos = r.occ[id];
   if (!pos || !pos.length) return "";
   return r.code + String(r.order[pos[0]].idx).padStart(2, "0");
+}
+// Fetch the line's station records once per session and index the published codes.
+// Non-fatal on failure: codeById stays unset, so stationCode() keeps its derivation.
+async function loadStationCodes(line){
+  const r = S.railways[line];
+  if (!r || r.codeById) return;
+  try {
+    const st = await getJSON("/api/stations?railway=" + encodeURIComponent(line));
+    const map = {};
+    st.forEach(s => { if (s["odpt:stationCode"]) map[s["owl:sameAs"]] = s["odpt:stationCode"]; });
+    r.codeById = map;
+  } catch(_){}
 }
 // HTML for a station-number roundel (colour ring = the line colour). Falls back to the
 // train-number pill when the line has no station code.
@@ -1016,7 +1033,12 @@ async function onLine(){
   $("card2").style.display = "block";
   $("s2sub").innerHTML = '<span class="spin d"></span>';
   try {
-    S.trains = await getJSON("/api/trains?railway=" + encodeURIComponent(S.line));
+    // station codes load alongside the trains so the picker renders real signage first paint
+    const [trains] = await Promise.all([
+      getJSON("/api/trains?railway=" + encodeURIComponent(S.line)),
+      loadStationCodes(S.line),
+    ]);
+    S.trains = trains;
     buildDirMap();
     renderTrainPicker();
   } catch(e){

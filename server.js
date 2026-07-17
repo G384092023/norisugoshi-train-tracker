@@ -72,6 +72,10 @@ const PORT = process.env.PORT || 3000;
 // it for an hour (TTL = "time to live"). `at` is the timestamp it was fetched.
 let railwayCache = { data: null, at: 0 };
 const RAILWAY_TTL = 60 * 60 * 1000; // 1 hour, in milliseconds
+// Station records per railway (for the published odpt:stationCode). Same idea as the
+// railway cache — station numbering changes about never — but keyed per line, since the
+// app only ever asks for the line the user picked.
+const stationCache = new Map(); // railway id -> { data, at }
 
 /**
  * fetchOdpt(url) — make ONE GET request to ODPT and return the raw text body.
@@ -228,6 +232,34 @@ const server = http.createServer(async (req, res) => {
       const tt = await fetchMerged("odpt:TrainTimetable" + (qs ? `?${qs}` : ""));
       console.log(`[${now()}] /api/timetable ${railway} ${train} ${calendar} -> ${tt.length} (merged)`);
       return sendJson(res, 200, tt);
+    }
+
+    // ---- ROUTE: stations on one line (cached per railway) ------------------
+    // /api/stations?railway=X -> odpt:Station records. The app reads the REAL
+    // per-station code (odpt:stationCode, e.g. Tokyo on the Utsunomiya line =
+    // JU01). Published codes beat deriving lineCode+index, which goes wrong
+    // exactly where numbering doesn't cover the whole line (JU stops at Omiya;
+    // Sengakuji carries no KK number at all).
+    if (url.pathname === "/api/stations") {
+      const railway = url.searchParams.get("railway") || "";
+      if (!railway) return sendJson(res, 400, { error: "railway required" });
+      const hit = stationCache.get(railway);
+      if (hit && Date.now() - hit.at < RAILWAY_TTL) {
+        console.log(`[${now()}] /api/stations ${railway} (cache)`);
+        return sendJson(res, 200, hit.data);
+      }
+      const merged = await fetchMerged(`odpt:Station?odpt:railway=${encodeURIComponent(railway)}`);
+      // both hosts may describe the same station; keep the record that has a stationCode
+      const byId = new Map();
+      for (const s of merged) {
+        const id = s["owl:sameAs"];
+        const cur = byId.get(id);
+        if (!cur || (!cur["odpt:stationCode"] && s["odpt:stationCode"])) byId.set(id, s);
+      }
+      const stations = [...byId.values()];
+      stationCache.set(railway, { data: JSON.stringify(stations), at: Date.now() });
+      console.log(`[${now()}] /api/stations ${railway} -> ${stations.length} (merged+deduped)`);
+      return sendJson(res, 200, stationCache.get(railway).data);
     }
 
     // ---- ROUTE: railway metadata (cached) ---------------------------------
