@@ -136,6 +136,21 @@
   .stn-code.sm { min-width:0; height:22px; padding:0 7px; border-width:2px; border-radius:999px; font-size:11px; margin-right:6px; }
   /* line badge — the line name in its official colour; works in native WebView (unlike <select> options) */
   .line-chip { display:inline-flex; align-items:center; padding:2px 11px; border-radius:999px; font-size:12px; font-weight:700; }
+  /* line-symbol roundel — squared ring in the line colour with the line code (TD, JY, A…),
+     like the platform signage symbol; a solid colour square when the line has no code */
+  .line-mark { display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box;
+               min-width:34px; height:34px; padding:0 5px; border:3px solid var(--c,var(--ink));
+               border-radius:8px; font-weight:800; font-size:12.5px; color:var(--ink); background:var(--bg);
+               flex-shrink:0; line-height:1; }
+  .line-mark.fill { background:var(--c,var(--ink)); }
+  /* step-1 line picker — a button + collapsible list (roundels can't render inside <select> options) */
+  .line-btn { width:100%; display:flex; align-items:center; gap:10px; font-size:15px; padding:8px 12px;
+              border:1px solid var(--line); border-radius:var(--r-sm); background:var(--surface2);
+              color:var(--ink); min-height:50px; cursor:pointer; text-align:left; font-weight:600; }
+  .line-btn:focus-visible { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .line-btn .caret { margin-left:auto; color:var(--ink2); font-size:11px; flex-shrink:0; }
+  .line-btn .ph { color:var(--ink2); font-weight:400; }
+  .line-list { margin-top:8px; }
   .train-meta { font-size:13px; line-height:1.45; flex:1; min-width:0; overflow-wrap:break-word; word-break:break-word; }
   .train-meta .pos { font-weight:600; }
   .train-meta .sub { color:var(--ink2); font-size:12px; }
@@ -309,8 +324,9 @@
         <div class="step-title lk"><span class="ja">路線</span><span class="en">Your line</span></div>
         <div class="step-sub" id="s1sub"><span class="ja">読込中</span><span class="en">Loading...</span></div>
       </div>
-      <label class="fld" for="selLine"><span class="ja">運行中の路線のみ表示されます</span><span class="en">Only lines currently running are shown</span></label>
-      <select id="selLine"><option value="">— …</option></select>
+      <label class="fld" for="lineBtn"><span class="ja">運行中の路線のみ表示されます</span><span class="en">Only lines currently running are shown</span></label>
+      <button class="line-btn" id="lineBtn" type="button" aria-expanded="true" aria-controls="lineList" onclick="toggleLineList()"><span class="ph">…</span></button>
+      <div class="train-list line-list" id="lineList"></div>
     </div>
 
     <!-- STEP 2 — which train -->
@@ -590,6 +606,8 @@ const deviceByName = (name) => Object.keys(DEVICES).find(k =>
 // ============================================================ STATE
 const S = {
   railways: {},        // id -> { ja, en, order:[{idx,id,ja,en}], pos:{id->arrayIndex} }
+  alive: null,         // running-line ids, alphabetical by English name (null until init loads)
+  lineCounts: {},      // railway id -> live train count (labels in the line picker)
   line: "",
   trains: [],          // live trains on current line
   dirByRailDir: {},    // odpt:railDirection -> +1/-1, learned from in-transit trains
@@ -672,12 +690,9 @@ function applyLangDynamic(){
     const n = o.value;
     o.textContent = tt(`${n}駅前`, `${n} station${n==="1"?"":"s"} before`);
   });
-  // the line dropdown: placeholder + each line's label (rebuilt from the data-* it was built with)
-  const lineSel = $("selLine");
-  if (lineSel) [...lineSel.options].forEach(o => {
-    if (!o.value){ o.textContent = tt("— 路線を選ぶ —", "— select a line —"); return; }
-    if (o.dataset.ja) o.textContent = `${tt(o.dataset.ja, o.dataset.en || o.dataset.ja)} · ${o.dataset.n}${tt("本", " trains")}`;
-  });
+  // the line picker: rebuild the rows + button label in the new language
+  // (renderLineList keeps the current selection and open/closed state)
+  renderLineList();
   // re-render a live tracking view / open picker so its dynamic strings switch language too
   try {
     if (S.tracking && S.train) render(S.train);
@@ -745,6 +760,36 @@ function lineChip(line){
   const bg = r.color || "var(--ink)";
   const fg = r.color ? contrastText(r.color) : "var(--bg)";
   return `<span class="line-chip" style="background:${bg};color:${fg}">${tt(r.ja, r.en)}</span>`;
+}
+// Operator display names, keyed by the middle segment of the railway id
+// (odpt.Railway:Tobu.TobuUrbanPark -> "Tobu"). Distinguishes same-named lines
+// on different operators (Keikyu Daishi Line vs Tobu Daishi Line).
+const OPERATORS = {
+  "JR-East":{ja:"JR東日本",en:"JR East"}, TokyoMetro:{ja:"東京メトロ",en:"Tokyo Metro"},
+  Toei:{ja:"都営",en:"Toei"}, Tobu:{ja:"東武",en:"Tobu"}, Keikyu:{ja:"京急",en:"Keikyu"},
+  Keio:{ja:"京王",en:"Keio"}, Keisei:{ja:"京成",en:"Keisei"}, Odakyu:{ja:"小田急",en:"Odakyu"},
+  Seibu:{ja:"西武",en:"Seibu"}, Tokyu:{ja:"東急",en:"Tokyu"}, Sotetsu:{ja:"相鉄",en:"Sotetsu"},
+  YokohamaMunicipal:{ja:"横浜市営",en:"Yokohama Municipal"}, TWR:{ja:"りんかい線",en:"TWR"},
+  MIR:{ja:"つくばエクスプレス",en:"Tsukuba Express"}, Yurikamome:{ja:"ゆりかもめ",en:"Yurikamome"},
+  TamaMonorail:{ja:"多摩モノレール",en:"Tama Monorail"}, TokyoMonorail:{ja:"東京モノレール",en:"Tokyo Monorail"},
+  SaitamaRailway:{ja:"埼玉高速鉄道",en:"Saitama Railway"}, ToyoRapid:{ja:"東葉高速鉄道",en:"Toyo Rapid"},
+  Hokuso:{ja:"北総鉄道",en:"Hokuso"}, Shibayama:{ja:"芝山鉄道",en:"Shibayama"},
+};
+function operatorName(line){
+  // "odpt.Railway:Tobu.TobuUrbanPark" -> "Tobu"
+  const key = ((line || "").split(":")[1] || "").split(".")[0];
+  const o = OPERATORS[key];
+  return o ? tt(o.ja, o.en) : key;
+}
+// Line-symbol roundel like the platform signage: squared ring in the official line
+// colour with the line code inside (Tobu Urban Park = light-blue "TD"). Lines with a
+// colour but no code get a solid colour square; lines with neither get a neutral ring.
+function lineMark(line){
+  const r = S.railways[line];
+  if (!r) return "";
+  const c = r.color ? ` style="--c:${r.color}"` : "";
+  if (r.code) return `<span class="line-mark"${c}>${r.code}</span>`;
+  return `<span class="line-mark${r.color ? " fill" : ""}"${c}></span>`;
 }
 // Fetch with auto-retry. Free hosts (e.g. Render) occasionally fail to route a
 // request to the instance and return a transient 404/5xx, or the instance is
@@ -830,24 +875,17 @@ async function init(){
     // a line is "alive" if it has live trains AND we have its station order
     const counts = {};
     allTrains.forEach(t => { const rw=t["odpt:railway"]; counts[rw]=(counts[rw]||0)+1; });
-    const alive = Object.keys(counts)
+    S.lineCounts = counts;
+    // alphabetical by English name (stable in both UI languages); id breaks ties
+    S.alive = Object.keys(counts)
       .filter(rw => S.railways[rw] && S.railways[rw].order.length > 0)
-      .sort((a,b)=>counts[b]-counts[a]);
-
-    const sel = $("selLine");
-    if (alive.length === 0){
-      sel.innerHTML = `<option value="">${tt("現在運行中の路線がありません", "No lines currently running")}</option>`;
-      S.lineCount = 0; $("s1sub").textContent = tt("0 路線", "0 lines");
-      return;
-    }
-    // store ja/en/count as data-* so applyLangDynamic can relabel on a language switch
-    sel.innerHTML = `<option value="">${tt("— 路線を選ぶ —", "— select a line —")}</option>` +
-      alive.map(rw => {
-        const r = S.railways[rw];
-        return `<option value="${rw}" data-ja="${r.ja}" data-en="${r.en}" data-n="${counts[rw]}"${r.color?` style="color:${r.color}"`:""}>`
-             + `${tt(r.ja, r.en)} · ${counts[rw]}${tt("本", " trains")}</option>`;
-      }).join("");
-    S.lineCount = alive.length; $("s1sub").textContent = tt(`${alive.length} 路線`, `${alive.length} lines`);
+      .sort((a,b) => S.railways[a].en.localeCompare(S.railways[b].en, "en", {sensitivity:"base"})
+                  || a.localeCompare(b));
+    S.lineCount = S.alive.length;
+    $("s1sub").textContent = tt(`${S.alive.length} 路線`, `${S.alive.length} lines`);
+    renderLineList();
+    // a previous selection (refreshAll) keeps the list collapsed; otherwise open it for picking
+    setLineListOpen(!S.line);
   } catch(e){
     showErr("Could not reach the proxy. Run  node server.js  and open http://localhost:3000  (" + e.message + ")");
     $("s1sub").textContent = "offline";
@@ -855,9 +893,49 @@ async function init(){
 }
 
 // ============================================================ STEP 1 -> 2
-$("selLine").addEventListener("change", onLine);
+// Renders the line picker: one row per running line, with the signage-style
+// roundel, the line name, and operator + live train count underneath.
+function renderLineList(){
+  const list = $("lineList"); if (!list) return;
+  if (S.alive === null){ updateLineBtn(); return; }   // init() hasn't loaded the data yet
+  if (!S.alive.length){
+    list.innerHTML = `<p class="hint">${tt("現在運行中の路線がありません", "No lines currently running")}</p>`;
+    updateLineBtn(); return;
+  }
+  list.innerHTML = S.alive.map(rw => {
+    const r = S.railways[rw];
+    return `<div class="train-opt line-opt${rw===S.line?" sel":""}" data-rw="${rw}" onclick="pickLine('${rw}')">
+        ${lineMark(rw)}
+        <div class="train-meta">
+          <div class="pos">${tt(r.ja, r.en)}</div>
+          <div class="sub">${operatorName(rw)} · ${S.lineCounts[rw]}${tt("本", S.lineCounts[rw] === 1 ? " train" : " trains")}</div>
+        </div>
+      </div>`;
+  }).join("");
+  updateLineBtn();
+}
+function updateLineBtn(){
+  const b = $("lineBtn"); if (!b) return;
+  const r = S.railways[S.line];
+  if (!S.line || !r){
+    b.innerHTML = `<span class="ph">${tt("— 路線を選ぶ —", "— select a line —")}</span><span class="caret">▼</span>`;
+    return;
+  }
+  b.innerHTML = `${lineMark(S.line)}<span>${tt(r.ja, r.en)}</span><span class="caret">▼</span>`;
+}
+function setLineListOpen(open){
+  $("lineList").style.display = open ? "" : "none";
+  $("lineBtn").setAttribute("aria-expanded", String(open));
+}
+function toggleLineList(){ setLineListOpen($("lineList").style.display === "none"); }
+async function pickLine(rw){
+  S.line = rw;
+  document.querySelectorAll(".line-opt").forEach(el => el.classList.toggle("sel", el.dataset.rw === rw));
+  updateLineBtn();
+  setLineListOpen(false);
+  await onLine();
+}
 async function onLine(){
-  S.line = $("selLine").value;
   S.train = null; S.trainNo = ""; S.destId = "";
   resetFrom(2);
   if (!S.line) return;
@@ -946,7 +1024,8 @@ async function refreshAll(){
     const prevLine = S.line;
     await init();                             // reload line list + railway metadata
     if (prevLine && S.railways[prevLine]){
-      $("selLine").value = prevLine; S.line = prevLine;
+      S.line = prevLine;
+      renderLineList();                       // re-highlight the kept line + relabel the button
       $("s1").classList.add("done");
       if (S.trainNo) await refreshTrains();   // keeps the selected train + destination
       else await onLine();                    // just reload the trains for the chosen line
