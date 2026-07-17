@@ -133,6 +133,14 @@
               min-width:40px; height:40px; padding:0 5px; border:3px solid var(--c,var(--ink));
               border-radius:50%; font-weight:800; font-size:13px; color:var(--ink); background:var(--bg);
               font-variant-numeric:tabular-nums; flex-shrink:0; line-height:1; }
+  /* Icon shape follows each operator's real signage, measured from their own symbol artwork:
+     the subways, Keikyu and the Sakura Tram print a circle; JR East a lightly-rounded square
+     (corner radius ~12% of the width); Tobu a more rounded square (~25%). Circle is the
+     default, so an operator we haven't checked keeps the familiar roundel.
+     Must stay above .sm, which is a pill in step 3 and has to win. */
+  .stn-code.sh-round, .line-mark.sh-round { border-radius:50%; }
+  .stn-code.sh-jr,    .line-mark.sh-jr    { border-radius:12%; }
+  .stn-code.sh-tobu,  .line-mark.sh-tobu  { border-radius:25%; }
   .stn-code.sm { min-width:0; height:22px; padding:0 7px; border-width:2px; border-radius:999px; font-size:11px; margin-right:6px; }
   /* line badge — the line name in its official colour; works in native WebView (unlike <select> options) */
   .line-chip { display:inline-flex; align-items:center; padding:2px 11px; border-radius:999px; font-size:12px; font-weight:700; }
@@ -743,7 +751,7 @@ function stationBadge(line, id, fallbackNo){
   const c = stationCode(line, id);
   if (!c) return `<span class="train-no">${fallbackNo}</span>`;
   const col = (S.railways[line] || {}).color;
-  return `<span class="stn-code"${col ? ` style="--c:${col}"` : ""}>${c}</span>`;
+  return `<span class="stn-code ${lineShape(line)}"${col ? ` style="--c:${col}"` : ""}>${c}</span>`;
 }
 // Black/white text for legible contrast against a hex line colour.
 function contrastText(hex){
@@ -775,12 +783,18 @@ const OPERATORS = {
   SaitamaRailway:{ja:"埼玉高速鉄道",en:"Saitama Railway"}, ToyoRapid:{ja:"東葉高速鉄道",en:"Toyo Rapid"},
   Hokuso:{ja:"北総鉄道",en:"Hokuso"}, Shibayama:{ja:"芝山鉄道",en:"Shibayama"},
 };
-function operatorName(line){
+function operatorKey(line){
   // "odpt.Railway:Tobu.TobuUrbanPark" -> "Tobu"
-  const key = ((line || "").split(":")[1] || "").split(".")[0];
-  const o = OPERATORS[key];
-  return o ? tt(o.ja, o.en) : key;
+  return ((line || "").split(":")[1] || "").split(".")[0];
 }
+function operatorName(line){
+  const o = OPERATORS[operatorKey(line)];
+  return o ? tt(o.ja, o.en) : operatorKey(line);
+}
+// Icon shape, per operator's real signage (see the sh-* CSS). Only two operators depart
+// from the circle, so everything else — checked or not — keeps the familiar roundel.
+const OPERATOR_SHAPE = { "JR-East": "sh-jr", Tobu: "sh-tobu" };
+function lineShape(line){ return OPERATOR_SHAPE[operatorKey(line)] || "sh-round"; }
 // Real line symbols that ODPT doesn't publish in odpt:lineCode. DISPLAY ONLY — these feed
 // the step-1 roundel via `mark`, never stationCode(), because ODPT's station indexes do NOT
 // line up with the real numbering on these lines:
@@ -815,8 +829,9 @@ function lineMark(line){
   const r = S.railways[line];
   if (!r) return "";
   const c = r.color ? ` style="--c:${r.color}"` : "";
-  if (r.mark) return `<span class="line-mark"${c}>${r.mark}</span>`;
-  return `<span class="line-mark${r.color ? " fill" : ""}"${c}></span>`;
+  const sh = lineShape(line);
+  if (r.mark) return `<span class="line-mark ${sh}"${c}>${r.mark}</span>`;
+  return `<span class="line-mark ${sh}${r.color ? " fill" : ""}"${c}></span>`;
 }
 // Fetch with auto-retry. Free hosts (e.g. Render) occasionally fail to route a
 // request to the instance and return a transient 404/5xx, or the instance is
