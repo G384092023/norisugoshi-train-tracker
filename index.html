@@ -781,14 +781,29 @@ function operatorName(line){
   const o = OPERATORS[key];
   return o ? tt(o.ja, o.en) : key;
 }
+// Real line symbols that ODPT doesn't publish in odpt:lineCode. DISPLAY ONLY — these feed
+// the step-1 roundel via `mark`, never stationCode(), because ODPT's station indexes do NOT
+// line up with the real numbering on these lines:
+//   - Keikyu: KK01 is Shinagawa, and Sengakuji (ODPT's index 1) carries no KK number at all.
+//   - Utsunomiya/Takasaki: JU numbering only runs Tokyo–Omiya (JU01–JU07); ODPT lists the
+//     whole line to Kuroiso/Takasaki.
+// Deriving station codes from these would print confident, wrong signage.
+const LINE_MARKS = {
+  "odpt.Railway:JR-East.Keiyo":      "JE",
+  "odpt.Railway:JR-East.Utsunomiya": "JU",
+  "odpt.Railway:JR-East.Takasaki":   "JU",   // shares JU with the Utsunomiya line
+  "odpt.Railway:Keikyu.Main":        "KK",
+  "odpt.Railway:Tobu.Isesaki":       "TI",
+  "odpt.Railway:Tobu.Nikko":         "TN",
+};
 // Line-symbol roundel like the platform signage: squared ring in the official line
-// colour with the line code inside (Tobu Urban Park = light-blue "TD"). Lines with a
-// colour but no code get a solid colour square; lines with neither get a neutral ring.
+// colour with the line symbol inside (Tobu Urban Park = light-blue "TD"). Lines with a
+// colour but no symbol get a solid colour square; lines with neither get a neutral ring.
 function lineMark(line){
   const r = S.railways[line];
   if (!r) return "";
   const c = r.color ? ` style="--c:${r.color}"` : "";
-  if (r.code) return `<span class="line-mark"${c}>${r.code}</span>`;
+  if (r.mark) return `<span class="line-mark"${c}>${r.mark}</span>`;
   return `<span class="line-mark${r.color ? " fill" : ""}"${c}></span>`;
 }
 // Fetch with auto-retry. Free hosts (e.g. Render) occasionally fail to route a
@@ -864,6 +879,9 @@ async function init(){
         en: (r["odpt:railwayTitle"]||{}).en || tail(id),
         order, occ, titleById,
         code: r["odpt:lineCode"] || "",   // line letter for station codes (Asakusa "A" → Kuramae idx17 = A17)
+        // step-1 roundel symbol only. Falls back to a hand-mapped symbol for lines ODPT
+        // leaves uncoded — deliberately NOT `code`, whose indexes wouldn't line up (LINE_MARKS).
+        mark: r["odpt:lineCode"] || LINE_MARKS[id] || "",
         color: r["odpt:color"] || "",     // official line colour (e.g. Asakusa #FF535F) for roundels/labels
         // deterministic direction mapping: ascending = increasing station index = +1.
         // Always present in ODPT metadata, so direction never depends on live traffic.
