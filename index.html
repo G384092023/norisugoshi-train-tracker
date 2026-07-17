@@ -788,13 +788,25 @@ function operatorName(line){
 //   - Utsunomiya/Takasaki: JU numbering only runs Tokyo–Omiya (JU01–JU07); ODPT lists the
 //     whole line to Kuroiso/Takasaki.
 // Deriving station codes from these would print confident, wrong signage.
+// Duplicates here are expected and correct: branches share their parent's symbol, exactly as
+// ODPT's own data already does (JC covers Chuo Rapid + Ome + Itsukaichi, KK covers four Keikyu
+// lines). The line name + operator underneath is what disambiguates a row, not the symbol.
 const LINE_MARKS = {
-  "odpt.Railway:JR-East.Keiyo":      "JE",
-  "odpt.Railway:JR-East.Utsunomiya": "JU",
-  "odpt.Railway:JR-East.Takasaki":   "JU",   // shares JU with the Utsunomiya line
-  "odpt.Railway:Keikyu.Main":        "KK",
-  "odpt.Railway:Tobu.Isesaki":       "TI",
-  "odpt.Railway:Tobu.Nikko":         "TN",
+  "odpt.Railway:JR-East.Keiyo":         "JE",
+  "odpt.Railway:JR-East.Utsunomiya":    "JU",
+  "odpt.Railway:JR-East.Takasaki":      "JU",   // shares JU with the Utsunomiya line
+  "odpt.Railway:Keikyu.Main":           "KK",
+  "odpt.Railway:Tobu.Isesaki":          "TI",
+  "odpt.Railway:Tobu.Nikko":            "TN",
+  "odpt.Railway:JR-East.Chuo":          "CO",   // Chuo main (ODPT: Takao–Shiojiri); CO numbering runs from Otsuki
+  "odpt.Railway:JR-East.JobanRapid":    "JJ",
+  "odpt.Railway:JR-East.SaikyoKawagoe": "JA",
+  "odpt.Railway:JR-East.SotetsuDirect": "JS",   // its JR leg (Osaki–Musashi-Kosugi) is signed JS
+  // "JR" is the company mark, not a line symbol: these two carry no station numbering at all,
+  // so the roundel reads "an unnumbered JR line". Their colours keep them apart (Joban blue,
+  // Kawagoe grey).
+  "odpt.Railway:JR-East.Joban":         "JR",
+  "odpt.Railway:JR-East.Kawagoe":       "JR",
 };
 // Line-symbol roundel like the platform signage: squared ring in the official line
 // colour with the line symbol inside (Tobu Urban Park = light-blue "TD"). Lines with a
