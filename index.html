@@ -2217,7 +2217,14 @@ const PATTERNS = [
 const patternById   = (id) => PATTERNS.find(p => p.id === id) || PATTERNS[0];
 const patternPulses = (p)  => p.steps.reduce((n,s) => n + s.c, 0);
 const patternPeak   = (p)  => p.steps.reduce((m,s) => Math.max(m, s.i), 0);
-const playbackMs    = (c)  => 150 + c * 600;
+// ⚠️ THE TWO CHANNELS RUN AT DIFFERENT SPEEDS — this must stay channel-aware.
+// ZAP 600ms, measured exactly. VIBE bracketed to 800-1100ms (a 4-pulse vibe burst ran 3.2-4.4s);
+// vibe carries on/off bytes that zap does not, and they set a slower period. Vibe emits no
+// per-delivery report so it cannot be measured precisely — hence the UPPER bound, since
+// underestimating silently truncates a pattern while overestimating only makes it longer.
+// Treating both as 600ms merged longshort's fifth pulse into its fourth on vibrate.
+const ZAP_PULSE_MS = 600, VIBE_PULSE_MS = 1100;
+const playbackMs = (c, channel) => 150 + c * (channel === "zap" ? ZAP_PULSE_MS : VIBE_PULSE_MS);
 
 // Study settings. Defaults are the SAFE, boring ones — vibrate, fixed single pulse, i.e. the
 // pre-study behaviour. Nothing varies and nothing zaps until the experiment says so.
@@ -2295,7 +2302,7 @@ async function blePlayPattern(pattern, strength, channel, opts){
         if (ch) ch.writeValue(w.value).catch(e => console.warn("BLE write failed", e.message));
       }
     }, at);
-    at += playbackMs(count) + s.gap;
+    at += playbackMs(count, channel) + s.gap;
   }
   stimRecordFired(channel);                                  // safety budget: always
   if (!opts || opts.countExposure !== false) stimRecordExposure(pattern.id);
