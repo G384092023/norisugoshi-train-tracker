@@ -598,13 +598,17 @@ const DEVICES = {
       return [{ characteristic: this.chars[0], value: Uint8Array.of(byte) }];
     },
   },
-  // Pavlok 3 — commercial device. CONFIRMED on-device (2026-07-09, nRF Connect on Pavlok-3-E64B):
-  // custom service 156e1000-… holds short-form stimulus characteristics:
-  //   vibe 0x1001, beep 0x1002, zap 0x1003 (we use vibe only). The vibrate is a MOMENTARY pulse
-  // (no persistent "on"), so strength 0 (off) is a no-op — nothing to clear.
-  // ⚠️ PAYLOAD still being confirmed. The device did NOT buzz on the old [count,level,on,off]
-  //    bytes — likely it needs BONDING, or a different payload (single intensity byte?). Once the
-  //    winning nRF Connect write is known, set encode() below to match it exactly.
+  // Pavlok 3 — commercial device. Protocol CONFIRMED 2026-07-23 by decrypting the official
+  // app's own traffic (nRF52840 sniffer + a fresh LE Legacy pairing) and then reproducing the
+  // write from a PC — the band physically buzzed. See memory pavlok-ble-protocol.
+  //   service 156e1000-…, vibe 0x1001, beep 0x1002, zap 0x1003 (we use vibe only).
+  // Payload = [count | 0x80, timing, intensity(0-100 DECIMAL), on, off]
+  //   captured: 81 0c 64 16 16 = vibrate 100%,  81 0c 32 16 16 = vibrate 50%
+  // ⚠️ THE 0x80 BIT ON BYTE 0 IS THE "EXECUTE" FLAG — this was the whole missing piece. The
+  // characteristic reads back as 01 0c 64 16 16, and writing it with count=01 (no 0x80) only
+  // STORES the pattern; the motor never runs. That is why every earlier attempt looked
+  // accepted but did nothing. The flag is transient — it is not persisted on read-back.
+  // Vibrate is a MOMENTARY pulse, so strength 0 (off) is a no-op — nothing to clear.
   pavlok: {
     label: "Pavlok 3",
     namePrefix: "Pavlok",
@@ -613,9 +617,10 @@ const DEVICES = {
     momentary: true,
     encode(strength){
       if (strength <= 0) return [];                         // momentary pulse: nothing to turn off
-      const level = Math.round(Math.min(10, Math.max(1, strength)) / 10 * 255); // 1..10 → 0..0xff
-      // TODO(confirm payload): current guess [count, level, dur_on/20, dur_off/20].
-      return [{ characteristic: this.chars[0], value: Uint8Array.of(1, level, 20, 5) }];
+      // 1..10 → 10..100, the same 0-100 scale the Pavlok cloud API uses (NOT 0..255)
+      const intensity = Math.min(10, Math.max(1, strength)) * 10;
+      return [{ characteristic: this.chars[0],
+                value: Uint8Array.of(0x81, 0x0c, intensity, 0x16, 0x16) }];
     },
   },
 };
