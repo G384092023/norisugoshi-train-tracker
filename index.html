@@ -540,9 +540,9 @@
     <div class="sec">
       <div class="sec-t"><span class="ja">振動の強さ</span><span class="en">Haptic strength</span></div>
       <div class="slider-row">
-        <input type="range" id="hapRange" min="1" max="10" step="1" value="7"
-               oninput="setHapticStrength(this.value)" aria-label="振動の強さ 1-10">
-        <output id="hapVal" for="hapRange">7</output>
+        <input type="range" id="hapRange" min="5" max="100" step="5" value="70"
+               oninput="setHapticStrength(this.value)" aria-label="振動の強さ 5-100%">
+        <output id="hapVal" for="hapRange">70%</output>
         <button class="btn ghost icon-btn" onclick="hapticPreview()"><span class="ja">試す</span><span class="en">Test</span></button>
       </div>
       <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">リストバンド接続時はデバイスが、未接続時はスマホが振動します。</span><span class="en">Buzzes the wristband if connected, otherwise the phone.</span></p>
@@ -730,7 +730,11 @@ const $ = (id) => document.getElementById(id);
 
 // ============================================================ SETTINGS (theme · haptic · sheet)
 const THEME_KEY = "norisugoshi_theme";    // "auto" | "dark" | "light" (bootstrap script reads this too)
-const HAPTIC_KEY = "norisugoshi_haptic";  // wristband strength 1–10 (BLE command byte)
+// Wristband amplitude as a PERCENT, 5-100 in steps of 5. A NEW key, because the old one held a
+// coarse 1-10 step and the two ranges overlap — a stored "5" is ambiguous between them, so the
+// value is migrated once rather than reinterpreted in place.
+const HAPTIC_KEY = "norisugoshi_haptic_pct";
+const HAPTIC_KEY_LEGACY = "norisugoshi_haptic";
 function themePref(){ return localStorage.getItem(THEME_KEY) || "auto"; }
 function applyTheme(){
   const pref = themePref();
@@ -796,8 +800,19 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet()
 
 // Wristband strength 1–10, sent as the BLE command byte (0x01–0x0A; firmware maps it to
 // vibration amplitude). 0x00 stays "off". Default 7 — strong enough to wake, not painful.
-function hapticStrength(){ return Math.min(10, Math.max(1, parseInt(localStorage.getItem(HAPTIC_KEY) || "7", 10))); }
-function setHapticStrength(v){ localStorage.setItem(HAPTIC_KEY, String(v)); $("hapVal").textContent = v; }
+function hapticStrength(){
+  let raw = localStorage.getItem(HAPTIC_KEY);
+  if (raw === null){                                  // one-time migration: 1-10 step -> percent
+    const old = parseInt(localStorage.getItem(HAPTIC_KEY_LEGACY) || "", 10);
+    raw = String(Number.isFinite(old) ? Math.min(100, Math.max(5, old * 10)) : 70);
+    try { localStorage.setItem(HAPTIC_KEY, raw); } catch(_){}
+  }
+  // Number.isFinite, NOT `|| 70`: a stored "0" is falsy, so the fallback would turn a value
+  // meaning "off" into 70% — the wrong direction entirely for a shock.
+  const n = parseInt(raw, 10);
+  return Math.min(100, Math.max(5, Number.isFinite(n) ? n : 70));
+}
+function setHapticStrength(v){ localStorage.setItem(HAPTIC_KEY, String(v)); $("hapVal").textContent = v + "%"; }
 // A wrist device is connected if we hold GATT characteristics (web) or a native deviceId.
 function bleConnected(){ return !!(S.ble.deviceId || (S.ble.chars && Object.keys(S.ble.chars).length)); }
 function bleReset(){ S.ble.device = null; S.ble.kind = null; S.ble.chars = null; S.ble.deviceId = null; }
@@ -977,7 +992,7 @@ function onReady(){
   applyTheme();                                        // sync the settings segmented control + meta theme-color
   applyLang();                                         // sync the language control + option/attr labels
   $("hapRange").value = hapticStrength();
-  $("hapVal").textContent = hapticStrength();
+  $("hapVal").textContent = hapticStrength() + "%";
   renderStimUI();                                      // study controls + exposure counts
 }
 // follow the device locale live while the preference is "auto"
@@ -2111,8 +2126,13 @@ function setBlePill(on,name){
 // The Pavlok firmware independently rejects intensity > 100, but that is a device quirk, not our
 // limit — never lean on it.
 const STIM_LIMITS = {
-  zapHardMaxIntensity: 70,    // absolute ceiling; no setting may exceed it
-  zapMaxIntensity:     60,    // default operating ceiling
+  // Intensity is deliberately UNCAPPED (full 0-100), researcher's decision 2026-07-24: the
+  // effective level varies enough between individuals that a fixed ceiling would floor the
+  // stimulus for some wearers and make the habituation data incomparable. 100 is the device's
+  // own maximum — the firmware rejects anything above it. The FREQUENCY limits below are
+  // untouched and still do the real safety work.
+  zapHardMaxIntensity: 100,
+  zapMaxIntensity:     100,
   zapMinIntervalMs:    8000,  // refractory period between zaps
   zapMaxPerRide:       5,
   zapMaxPerDay:        20,
@@ -2283,7 +2303,7 @@ async function blePlayPattern(pattern, strength, channel, opts){
   const dev = DEVICES[kind];
   channel = channel || "vibe";
 
-  const base = Math.min(10, Math.max(1, strength)) * 10;
+  const base = Math.min(100, Math.max(1, strength));   // already a percent
   const peak = Math.round(base * patternPeak(pattern) / 100);
   const d = stimCheckPattern(channel, peak, patternPulses(pattern));
   stimLastDecision = `${pattern.id}: ${d.allowed?"allow":"BLOCK"} (${d.reason})`;
@@ -2400,7 +2420,7 @@ async function bleSend(value, channel){
   const dev = DEVICES[kind];
   channel = channel || "vibe";
 
-  let intensity = value <= 0 ? 0 : Math.min(10, Math.max(1, value)) * 10;
+  let intensity = value <= 0 ? 0 : Math.min(100, Math.max(1, value));   // already a percent
   if (intensity > 0){
     const d = stimCheck(channel, intensity);
     stimLastDecision = `${d.allowed?"allow":"BLOCK"} ${channel} intensity=${d.intensity} (${d.reason})`;
