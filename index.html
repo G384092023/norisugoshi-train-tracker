@@ -2188,27 +2188,36 @@ function stimCheckPattern(channel, peakIntensity, totalPulses){
 //
 // WHAT THE HARDWARE ACTUALLY GIVES US (probed 2026-07-23). Zap is a 2-byte payload, so it has
 // no timing/on/off the way vibe does. Three dimensions, and that is all:
-//   c    count 1-63 — a REAL repeat counter, N pulses from ONE write played by the band's own
+//   c    count 1-5 — a REAL repeat counter, N pulses from ONE write played by the band's own
 //        firmware. The valuable one: needs no app timing, so it survives the phone being asleep.
 //   i    intensity as a % of the wearer's configured strength (keeps patterns strength-agnostic)
 //   gap  ms of silence after the step — app-sequenced, the only dimension needing us awake.
 //
-// ⚠️ The band REFUSES a write while it is still playing (red LED, nothing over BLE), so every
-// step is scheduled at playbackMs(previous) + gap. playbackMs is a deliberately generous
-// ESTIMATE — the units of the band's on/off bytes were never measured, and underestimating
-// causes a collision that is undetectable in software.
+// ⚠️ EVERY PULSE IS 600ms APART — MEASURED 2026-07-23 by timestamping the per-delivery `0a`
+// reports on 0x2002 (count=5 gave gaps of 600, 599, 600, 601). There is no such thing as a
+// "rapid" burst on this hardware. The earlier 260ms guess was wrong by 2.3x and everything built
+// on it was wrong too: `burst` read as a slow metronome, and `longshort` sent its second write
+// 1560ms into a burst that really runs 2400ms, colliding and losing four of its five pulses.
+// The band refuses a write while playing and reports nothing over BLE, so this stayed invisible
+// until it was measured.
+//
+// A group boundary is `750 + gap` ms regardless of count, so gaps must be well clear of the
+// 600ms tick to read as boundaries. The original 180-620ms gaps were all SHORTER than the tick,
+// which inverted the intended rhythm — `double`'s "quick tap-tap" was slower than `burst`.
+// MAX_COUNT is 5: zap delivered a single pulse for count=8 while count=5 played in full.
+const MAX_COUNT = 5;
 const PATTERNS = [
   { id:"single",     ja:"単発", en:"Single",     steps:[{c:1,i:100,gap:0}] },
-  { id:"double",     ja:"二連", en:"Double tap", steps:[{c:1,i:100,gap:260},{c:1,i:100,gap:0}] },
+  { id:"double",     ja:"二連", en:"Double tap", steps:[{c:1,i:100,gap:750},{c:1,i:100,gap:0}] },
   { id:"burst",      ja:"連続", en:"Burst",      steps:[{c:5,i:100,gap:0}] },
-  { id:"crescendo",  ja:"漸強", en:"Crescendo",  steps:[{c:1,i:40,gap:320},{c:1,i:70,gap:320},{c:2,i:100,gap:0}] },
-  { id:"syncopated", ja:"変則", en:"Syncopated", steps:[{c:1,i:100,gap:180},{c:2,i:100,gap:620},{c:1,i:100,gap:0}] },
-  { id:"longshort",  ja:"長短", en:"Long-short", steps:[{c:4,i:100,gap:400},{c:1,i:100,gap:0}] },
+  { id:"crescendo",  ja:"漸強", en:"Crescendo",  steps:[{c:1,i:40,gap:750},{c:1,i:70,gap:750},{c:2,i:100,gap:0}] },
+  { id:"syncopated", ja:"変則", en:"Syncopated", steps:[{c:1,i:100,gap:250},{c:2,i:100,gap:1450},{c:1,i:100,gap:0}] },
+  { id:"longshort",  ja:"長短", en:"Long-short", steps:[{c:4,i:100,gap:750},{c:1,i:100,gap:0}] },
 ];
 const patternById   = (id) => PATTERNS.find(p => p.id === id) || PATTERNS[0];
 const patternPulses = (p)  => p.steps.reduce((n,s) => n + s.c, 0);
 const patternPeak   = (p)  => p.steps.reduce((m,s) => Math.max(m, s.i), 0);
-const playbackMs    = (c)  => 120 + c * 260;
+const playbackMs    = (c)  => 150 + c * 600;
 
 // Study settings. Defaults are the SAFE, boring ones — vibrate, fixed single pulse, i.e. the
 // pre-study behaviour. Nothing varies and nothing zaps until the experiment says so.
@@ -2278,7 +2287,7 @@ async function blePlayPattern(pattern, strength, channel, opts){
   const ceiling = d.intensity;
   let at = 0;
   for (const s of pattern.steps){
-    const count = Math.max(1, Math.min(63, s.c));
+    const count = Math.max(1, Math.min(MAX_COUNT, s.c));
     const intensity = Math.max(1, Math.round(ceiling * s.i / 100));
     setTimeout(() => {
       for (const w of encodeStep(dev, channel, intensity, count)){
