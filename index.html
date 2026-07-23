@@ -301,6 +301,22 @@
   .seg button{ flex:1; min-height:38px; border:none; border-radius:8px; background:transparent; color:var(--ink2);
                font-size:13px; font-weight:650; cursor:pointer; font-family:inherit; }
   .seg button.on{ background:var(--accent); color:var(--accent-ink); }
+  .sub-t{ font-size:11px; font-weight:650; color:var(--ink2); letter-spacing:.04em; margin:15px 0 7px; }
+  .sub-t:first-of-type{ margin-top:0; }
+  .pat-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(104px,1fr)); gap:7px; }
+  .pat-chip{ border:1px solid var(--line); border-radius:10px; background:var(--surface2); color:var(--ink2);
+             padding:9px 8px; font-family:inherit; font-size:12px; font-weight:650; cursor:pointer; text-align:left; }
+  .pat-chip.on{ border-color:var(--accent); background:var(--accent); color:var(--accent-ink); }
+  /* Name and exposure count share a row; the rhythm glyphs get a row to themselves, so the "·"
+     that separates pattern STEPS can never be misread as a separator before the count. */
+  .pat-chip .nm{ display:flex; justify-content:space-between; align-items:baseline; gap:6px; }
+  .pat-chip .nm em{ font-style:normal; font-size:10px; font-weight:600; opacity:.62;
+                    font-variant-numeric:tabular-nums; flex:none; }
+  .pat-chip .shape{ display:block; font-size:10px; font-weight:600; opacity:.72; margin-top:4px;
+                    letter-spacing:.06em; }
+  /* zap is the constrained channel — make its selected state read as a warning, not a preference */
+  .seg button.on.danger{ background:var(--warn,#c0392b); color:#fff; }
+  .stim-status{ font-size:11px; color:var(--ink2); margin-top:10px; font-variant-numeric:tabular-nums; }
   .slider-row{ display:flex; align-items:center; gap:12px; }
   .slider-row output{ font-size:20px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--accent-text); min-width:2ch; text-align:center; }
   input[type="range"]{ flex:1; appearance:none; -webkit-appearance:none; height:4px; border-radius:2px; background:var(--line); outline-offset:6px; }
@@ -533,6 +549,32 @@
     </div>
 
     <div class="sec">
+      <div class="sec-t"><span class="ja">刺激パターン（研究）</span><span class="en">Stimulus pattern (study)</span></div>
+
+      <div class="sub-t"><span class="ja">刺激の種類</span><span class="en">Channel</span></div>
+      <div class="seg" id="segStimCh">
+        <button data-pref="vibe" onclick="setStimChannel('vibe')"><span class="ja">振動</span><span class="en">Vibrate</span></button>
+        <button data-pref="zap"  onclick="setStimChannel('zap')"><span class="ja">電気</span><span class="en">Zap</span></button>
+      </div>
+
+      <div class="sub-t"><span class="ja">選び方</span><span class="en">Selection policy</span></div>
+      <div class="seg" id="segStimPolicy">
+        <button data-pref="fixed"    onclick="setPatternPolicy('fixed')"><span class="ja">固定</span><span class="en">Fixed</span></button>
+        <button data-pref="random"   onclick="setPatternPolicy('random')"><span class="ja">ランダム</span><span class="en">Random</span></button>
+        <button data-pref="rotating" onclick="setPatternPolicy('rotating')"><span class="ja">巡回</span><span class="en">Rotating</span></button>
+      </div>
+
+      <div class="sub-t" id="patGridT"></div>
+      <div class="pat-grid" id="patGrid"></div>
+
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn ghost" id="btnPatTest" onclick="patternPreview()"><span class="ja">このパターンを試す</span><span class="en">Test this pattern</span></button>
+      </div>
+      <div class="stim-status" id="stimStatus"></div>
+      <p class="hint" id="stimHint" style="text-align:left;margin-top:8px"></p>
+    </div>
+
+    <div class="sec">
       <div class="sec-t"><span class="ja">履歴</span><span class="en">Ride history</span></div>
       <div class="ride-sum" id="rideSum"></div>
       <div class="ride-list" id="rideList"></div>
@@ -592,9 +634,11 @@ const DEVICES = {
     service: "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
     chars: ["6e400002-b5a3-f393-e0a9-e50e24dcca9e"], // the writable command characteristic(s)
     momentary: false,                                // persistent on/off; strength 0 turns it off
-    // → array of { characteristic, value:Uint8Array } writes to perform for this signal
-    encode(strength){
-      const byte = strength <= 0 ? BLE_CLEAR : Math.min(10, Math.max(1, strength));
+    // → array of { characteristic, value:Uint8Array } writes to perform for this signal.
+    // `intensity` arrives on the universal 0-100 scale (already limiter-approved); this
+    // firmware wants 0x00 off / 0x01..0x0A, so map back down.
+    encode(intensity, _channel){
+      const byte = intensity <= 0 ? BLE_CLEAR : Math.min(10, Math.max(1, Math.round(intensity/10)));
       return [{ characteristic: this.chars[0], value: Uint8Array.of(byte) }];
     },
   },
@@ -609,16 +653,28 @@ const DEVICES = {
   // STORES the pattern; the motor never runs. That is why every earlier attempt looked
   // accepted but did nothing. The flag is transient — it is not persisted on read-back.
   // Vibrate is a MOMENTARY pulse, so strength 0 (off) is a no-op — nothing to clear.
+  // ⚠️ BYTE 0 CARRIES TWO FLAGS (established 2026-07-23 by store-only probing):
+  //     bit 7 (0x80) = EXECUTE — fire now
+  //     bit 6 (0x40) = COMMIT  — persist this as the band's stored pattern
+  //     bits 0-5     = count   (0-63)
+  // We always fire with COMMIT CLEAR (exactly as the official app does), so firing never
+  // overwrites whatever the wearer has configured on the band itself.
+  // ZAP (0x1003) takes EXACTLY 2 bytes — longer payloads are rejected (ATT error 13), so it has
+  // no timing/on/off knobs. Intensity is firmware-capped at 100, but never rely on that: the
+  // real bound is STIM_LIMITS below.
   pavlok: {
     label: "Pavlok 3",
     namePrefix: "Pavlok",
     service: "156e1000-a300-4fea-897b-86f698d74461",        // confirmed: primary stimulus service
-    chars: ["00001001-0000-1000-8000-00805f9b34fb"],        // confirmed: vibrate (0x1001)
+    chars: ["00001001-0000-1000-8000-00805f9b34fb",         // confirmed: vibrate (0x1001)
+            "00001003-0000-1000-8000-00805f9b34fb"],        // confirmed: zap (0x1003)
     momentary: true,
-    encode(strength){
-      if (strength <= 0) return [];                         // momentary pulse: nothing to turn off
-      // 1..10 → 10..100, the same 0-100 scale the Pavlok cloud API uses (NOT 0..255)
-      const intensity = Math.min(10, Math.max(1, strength)) * 10;
+    // `intensity` here is already on the universal 0-100 scale AND already limiter-approved.
+    encode(intensity, channel){
+      if (intensity <= 0) return [];                        // momentary pulse: nothing to turn off
+      if (channel === "zap"){
+        return [{ characteristic: this.chars[1], value: Uint8Array.of(0x81, intensity) }];
+      }
       return [{ characteristic: this.chars[0],
                 value: Uint8Array.of(0x81, 0x0c, intensity, 0x16, 0x16) }];
     },
@@ -731,9 +787,10 @@ function applyLangDynamic(){
   // step-1 count label ("N lines") — set once by init(), so relabel it here on a lang switch
   if (typeof S.lineCount === "number") $("s1sub").textContent = tt(`${S.lineCount} 路線`, `${S.lineCount} lines`);
   updateExportBtn(); renderRideHistory();
+  renderStimUI();   // pattern chips bake tt() into innerHTML, so they need a rebuild on a switch
 }
 
-function openSheet(){ renderRideHistory(); $("sheetOvl").classList.add("show"); $("sheet").classList.add("show"); }
+function openSheet(){ renderRideHistory(); renderStimUI(); $("sheetOvl").classList.add("show"); $("sheet").classList.add("show"); }
 function closeSheet(){ $("sheetOvl").classList.remove("show"); $("sheet").classList.remove("show"); }
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
 
@@ -921,6 +978,7 @@ function onReady(){
   applyLang();                                         // sync the language control + option/attr labels
   $("hapRange").value = hapticStrength();
   $("hapVal").textContent = hapticStrength();
+  renderStimUI();                                      // study controls + exposure counts
 }
 // follow the device locale live while the preference is "auto"
 window.addEventListener("languagechange", () => { if (langPref() === "auto") applyLang(); });
@@ -1306,6 +1364,7 @@ async function startTracking(){
   S.rideArrived = false; S.lastResponseSec = null;
   S.alertFired = false; S.alertAcked = false; S.alertTiming = null;
   S.missCount = 0; S.lastSeen = null; S.lastVibStop = null;
+  stimStartRide();                 // fresh ride → fresh per-ride stimulus budget
   S.altOpen = false; updateSwitchBtn();
   S.tracking = true;
 
@@ -1871,9 +1930,34 @@ function arrived(){
 }
 
 // the multi-channel "signal" — fires once per approach when the alert threshold is crossed
+// ORDER MATTERS, and the wrist stimulus goes FIRST.
+// It is the primary wake channel and the study's measured variable; everything below it is a
+// secondary cue. Behind the notification and beep it was paying for their latency — beep()
+// builds an AudioContext synchronously, which blocks the main thread for milliseconds before
+// the BLE write is even queued. That delay lands directly in responseSec, adding measurement
+// noise to the one number the experiment depends on.
+// (The handoff called this "BLE should lead, cloud should be the fallback". There is no cloud
+// path in this codebase — the Pavlok REST API was documented but never implemented — so the
+// actionable half of that note is this ordering.)
 function signal(){
   const stopName = stationTitle(S.line, S.destId);
-  // 1) system popup notification (native: LocalNotifications; web: Notification API)
+
+  // 1) BLE wrist device — the study's stimulus. The policy picks the pattern; the pattern, the
+  // policy and the PRIOR exposure count all go into the alert context so the response record
+  // can identify the experimental condition. Without those columns the CSV cannot distinguish
+  // habituation from an ordinary bad night.
+  const pat = stimSelectPattern(patternPolicy(), patternFixedId());
+  if (S.alertCtx){
+    S.alertCtx.patternId     = pat.id;
+    S.alertCtx.patternPolicy = patternPolicy();
+    S.alertCtx.stimChannel   = stimChannel();
+    S.alertCtx.exposures     = stimExposures(pat.id);   // BEFORE this delivery
+  }
+  blePlayPattern(pat, hapticStrength(), stimChannel()).then(ok => {
+    if (S.alertCtx) S.alertCtx.stimDecision = ok ? "fired" : stimLastDecision;
+  });
+
+  // 2) system popup notification (native: LocalNotifications; web: Notification API)
   if (IS_NATIVE && _LN){
     _LN.schedule({ notifications:[{
       title: tt("乗り過ごし防止 ⚡","Norisugoshi ⚡"),
@@ -1884,12 +1968,10 @@ function signal(){
   } else if ("Notification" in window && Notification.permission==="granted"){
     try { new Notification(tt("乗り過ごし防止 ⚡","Norisugoshi ⚡"), { body:tt(`まもなく ${stopName}。降りる準備を！`, `Approaching ${stopName}. Get ready to get off!`), requireInteraction:true }); } catch(_){}
   }
-  // 2) one-shot native haptic burst on alert fire (escalating per-stop is in render→vibrateForStops)
+  // 3) one-shot native haptic burst on alert fire (escalating per-stop is in render→vibrateForStops)
   if (IS_NATIVE && _HP){ _HP.vibrate({ duration:700 }).catch(()=>{}); }
-  // 3) audible beep
+  // 4) audible beep — last, because building its AudioContext is the slowest step here
   beep();
-  // 4) BLE haptic device — command byte = the user's chosen strength (1–10)
-  bleSend(hapticStrength());
 }
 
 // Escalating phone vibration: stronger/longer the closer the train gets.
@@ -2019,19 +2101,308 @@ function setBlePill(on,name){
   p.textContent = on ? `🟢 ${name||"connected"}` : "not connected";
   if (!on) $("btnBleTest").disabled = true;
 }
+// ============================================================ SAFETY ENVELOPE
+// Mirrors StimulusLimiter.java — KEEP THE TWO IN SYNC. Firing over direct BLE bypasses every
+// limit the official Pavlok app enforces, and nothing else in this stack bounds anything, so
+// the caps live here. It is experimental hygiene as much as safety: uncontrolled dosing makes
+// responseSec uninterpretable, because you can no longer separate habituation from "that ride
+// happened to zap nine times".
+//
+// The Pavlok firmware independently rejects intensity > 100, but that is a device quirk, not our
+// limit — never lean on it.
+const STIM_LIMITS = {
+  zapHardMaxIntensity: 70,    // absolute ceiling; no setting may exceed it
+  zapMaxIntensity:     60,    // default operating ceiling
+  zapMinIntervalMs:    8000,  // refractory period between zaps
+  zapMaxPerRide:       5,
+  zapMaxPerDay:        20,
+  vibeMinIntervalMs:   400,   // debounce only
+  // Dose ceiling WITHIN one event. A pattern is several writes, so the caps above bound how
+  // OFTEN the wearer is stimulated but say nothing about how much per stimulus.
+  zapMaxPulsesPerEvent: 8,
+};
+const STIM_DAY_KEY = "norisugoshi_zap_day";     // {day:"YYYY-MM-DD", n:<count>} — survives reload
+const _stim = { lastZapAt: 0, lastVibeAt: 0, zapsThisRide: 0 };
+
+const _stimToday = () => {
+  try {
+    const r = JSON.parse(localStorage.getItem(STIM_DAY_KEY) || "{}");
+    return (r.day === new Date().toLocaleDateString("sv")) ? (r.n || 0) : 0;
+  } catch(_){ return 0; }
+};
+function stimStartRide(){ _stim.zapsThisRide = 0; }
+// Decide whether a stimulus may fire, and at what intensity. Does NOT record the firing —
+// that only happens once a write actually succeeds, so a failed write can't eat the budget.
+function stimCheck(channel, intensity){
+  const now = Date.now();
+  if (channel !== "zap"){
+    if (now - _stim.lastVibeAt < STIM_LIMITS.vibeMinIntervalMs)
+      return { allowed:false, intensity:0, reason:"vibe debounce" };
+    return { allowed:true, intensity:Math.max(0, Math.min(100, intensity)), reason:"ok" };
+  }
+  if (now - _stim.lastZapAt < STIM_LIMITS.zapMinIntervalMs)
+    return { allowed:false, intensity:0,
+             reason:`zap refractory — ${STIM_LIMITS.zapMinIntervalMs-(now-_stim.lastZapAt)}ms remaining` };
+  if (_stim.zapsThisRide >= STIM_LIMITS.zapMaxPerRide)
+    return { allowed:false, intensity:0, reason:`zap per-ride cap reached (${STIM_LIMITS.zapMaxPerRide})` };
+  if (_stimToday() >= STIM_LIMITS.zapMaxPerDay)
+    return { allowed:false, intensity:0, reason:`zap daily cap reached (${STIM_LIMITS.zapMaxPerDay})` };
+  const capped = Math.max(1, Math.min(intensity, STIM_LIMITS.zapMaxIntensity, STIM_LIMITS.zapHardMaxIntensity));
+  return { allowed:true, intensity:capped,
+           reason: capped < intensity ? `ok (intensity clamped ${intensity}->${capped})` : "ok" };
+}
+function stimRecordFired(channel){
+  const now = Date.now();
+  if (channel !== "zap"){ _stim.lastVibeAt = now; return; }
+  _stim.lastZapAt = now;
+  _stim.zapsThisRide++;
+  try {
+    localStorage.setItem(STIM_DAY_KEY,
+      JSON.stringify({ day:new Date().toLocaleDateString("sv"), n:_stimToday()+1 }));
+  } catch(_){}
+}
+// Why the last stimulus was blocked or clamped — recorded into the experiment log, because a
+// suppressed stimulus that goes unrecorded misattributes the wearer's reaction to a stimulus
+// that never actually happened.
+let stimLastDecision = "";
+
+// Gate a whole PATTERN as ONE event. Run per-write, the refractory period would block every
+// step after the first and silently truncate every pattern to its opening pulse — the caps
+// would destroy the experiment rather than protect the wearer.
+function stimCheckPattern(channel, peakIntensity, totalPulses){
+  const d = stimCheck(channel, peakIntensity);
+  if (!d.allowed || channel !== "zap") return d;
+  if (totalPulses > STIM_LIMITS.zapMaxPulsesPerEvent)
+    return { allowed:false, intensity:0,
+             reason:`pattern exceeds per-event pulse cap (${totalPulses} > ${STIM_LIMITS.zapMaxPulsesPerEvent})` };
+  return d;
+}
+
+// ============================================================ STIMULUS PATTERNS
+// Mirrors StimulusPattern.java — KEEP THE TWO IN SYNC.
+//
+// The wearer habituates to a fixed stimulus and stops noticing it; varying the pattern is the
+// intervention under study, and responseSec drifting upward across exposures is the dependent
+// variable. A pattern is DATA, not code — nameable, loggable, countable — or the CSV cannot
+// tell one experimental condition from another.
+//
+// WHAT THE HARDWARE ACTUALLY GIVES US (probed 2026-07-23). Zap is a 2-byte payload, so it has
+// no timing/on/off the way vibe does. Three dimensions, and that is all:
+//   c    count 1-63 — a REAL repeat counter, N pulses from ONE write played by the band's own
+//        firmware. The valuable one: needs no app timing, so it survives the phone being asleep.
+//   i    intensity as a % of the wearer's configured strength (keeps patterns strength-agnostic)
+//   gap  ms of silence after the step — app-sequenced, the only dimension needing us awake.
+//
+// ⚠️ The band REFUSES a write while it is still playing (red LED, nothing over BLE), so every
+// step is scheduled at playbackMs(previous) + gap. playbackMs is a deliberately generous
+// ESTIMATE — the units of the band's on/off bytes were never measured, and underestimating
+// causes a collision that is undetectable in software.
+const PATTERNS = [
+  { id:"single",     ja:"単発", en:"Single",     steps:[{c:1,i:100,gap:0}] },
+  { id:"double",     ja:"二連", en:"Double tap", steps:[{c:1,i:100,gap:260},{c:1,i:100,gap:0}] },
+  { id:"burst",      ja:"連続", en:"Burst",      steps:[{c:5,i:100,gap:0}] },
+  { id:"crescendo",  ja:"漸強", en:"Crescendo",  steps:[{c:1,i:40,gap:320},{c:1,i:70,gap:320},{c:2,i:100,gap:0}] },
+  { id:"syncopated", ja:"変則", en:"Syncopated", steps:[{c:1,i:100,gap:180},{c:2,i:100,gap:620},{c:1,i:100,gap:0}] },
+  { id:"longshort",  ja:"長短", en:"Long-short", steps:[{c:4,i:100,gap:400},{c:1,i:100,gap:0}] },
+];
+const patternById   = (id) => PATTERNS.find(p => p.id === id) || PATTERNS[0];
+const patternPulses = (p)  => p.steps.reduce((n,s) => n + s.c, 0);
+const patternPeak   = (p)  => p.steps.reduce((m,s) => Math.max(m, s.i), 0);
+const playbackMs    = (c)  => 120 + c * 260;
+
+// Study settings. Defaults are the SAFE, boring ones — vibrate, fixed single pulse, i.e. the
+// pre-study behaviour. Nothing varies and nothing zaps until the experiment says so.
+const STIM_CH_KEY = "norisugoshi_stim_channel";
+const PAT_POLICY_KEY = "norisugoshi_pattern_policy";
+const PAT_FIXED_KEY  = "norisugoshi_pattern_fixed";
+const stimChannel    = () => localStorage.getItem(STIM_CH_KEY) || "vibe";
+const patternPolicy  = () => localStorage.getItem(PAT_POLICY_KEY) || "fixed";
+const patternFixedId = () => localStorage.getItem(PAT_FIXED_KEY) || "single";
+
+// {rotate:int, last:"id", exp:{id:count}} — exposures persist across rides, which they must:
+// habituation is a function of prior exposures, not of calendar time.
+const PAT_KEY = "norisugoshi_pattern_state";
+const patState = () => { try { return JSON.parse(localStorage.getItem(PAT_KEY) || "{}"); } catch(_){ return {}; } };
+const patSave  = (s) => { try { localStorage.setItem(PAT_KEY, JSON.stringify(s)); } catch(_){} };
+const stimExposures = (id) => (patState().exp || {})[id] || 0;
+function stimRecordExposure(id){
+  const s = patState(); s.exp = s.exp || {};
+  s.exp[id] = (s.exp[id] || 0) + 1; s.last = id; patSave(s);
+}
+// The POLICY is the independent variable:
+//   fixed    — same pattern every alert. The CONTROL; responseSec should drift upward here.
+//   random   — drawn from the pool, never repeating the previous one. The intervention.
+//   rotating — deterministic cycle: varied but learnable, so it may habituate to the sequence.
+function stimSelectPattern(policy, fixedId){
+  if (policy === "fixed") return patternById(fixedId);
+  const s = patState();
+  if (policy === "rotating"){
+    const i = (s.rotate || 0) % PATTERNS.length;
+    s.rotate = (i + 1) % PATTERNS.length; patSave(s);
+    return PATTERNS[i];
+  }
+  // random, excluding the previous pattern — a repeat would be indistinguishable from the
+  // fixed condition for that exposure, which would quietly contaminate the comparison.
+  const pool = PATTERNS.length > 1 ? PATTERNS.filter(p => p.id !== s.last) : PATTERNS;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// One step of a pattern: `count` pulses at `intensity`, EXECUTE set, COMMIT clear.
+function encodeStep(dev, channel, intensity, count){
+  if (dev.chars.length < 2) return dev.encode(intensity, channel);  // arduino: no burst support
+  const b0 = (count & 0x3F) | 0x80;
+  return (channel === "zap")
+    ? [{ characteristic: dev.chars[1], value: Uint8Array.of(b0, intensity) }]
+    : [{ characteristic: dev.chars[0], value: Uint8Array.of(b0, 0x0c, intensity, 0x16, 0x16) }];
+}
+
+// Play a pattern on the WEB Bluetooth path. (On native, Java's BleManager.playPattern owns
+// this — it has to, because the background service fires while this WebView is frozen.)
+// `opts.countExposure === false` plays the pattern WITHOUT recording it as an exposure — for the
+// settings preview. The safety budget still applies (a preview zap is a real zap), but the
+// experiment's exposure counter must not move, or testing the UI would contaminate the data.
+async function blePlayPattern(pattern, strength, channel, opts){
+  const kind = S.ble.kind;
+  if (!kind || !DEVICES[kind] || !S.ble.chars) return false;
+  const dev = DEVICES[kind];
+  channel = channel || "vibe";
+
+  const base = Math.min(10, Math.max(1, strength)) * 10;
+  const peak = Math.round(base * patternPeak(pattern) / 100);
+  const d = stimCheckPattern(channel, peak, patternPulses(pattern));
+  stimLastDecision = `${pattern.id}: ${d.allowed?"allow":"BLOCK"} (${d.reason})`;
+  if (!d.allowed){ console.info("pattern suppressed:", d.reason); return false; }
+
+  // d.intensity is the approved CEILING; steps scale under it so the amplitude SHAPE survives
+  // clamping (a crescendo must still be a crescendo after the limiter trims it).
+  const ceiling = d.intensity;
+  let at = 0;
+  for (const s of pattern.steps){
+    const count = Math.max(1, Math.min(63, s.c));
+    const intensity = Math.max(1, Math.round(ceiling * s.i / 100));
+    setTimeout(() => {
+      for (const w of encodeStep(dev, channel, intensity, count)){
+        const ch = S.ble.chars[w.characteristic];
+        if (ch) ch.writeValue(w.value).catch(e => console.warn("BLE write failed", e.message));
+      }
+    }, at);
+    at += playbackMs(count) + s.gap;
+  }
+  stimRecordFired(channel);                                  // safety budget: always
+  if (!opts || opts.countExposure !== false) stimRecordExposure(pattern.id);
+  return true;
+}
+
+// ---------------------------------------------------------------- study settings UI
+// Renders each pattern's rhythm as glyphs — one ● per pulse, steps separated by "·" — so the
+// shape is readable at a glance instead of having to decode counts and gaps.
+const patternGlyph = (p) => p.steps.map(s => "●".repeat(Math.min(s.c, 8))).join(" · ");
+
+function setStimChannel(v){
+  // Turning zap ON is the one setting here that changes what the wearer physically receives,
+  // so it is confirmed explicitly and the active caps are stated rather than buried in code.
+  if (v === "zap" && stimChannel() !== "zap"){
+    const okMsg = tt(
+      `電気刺激をオンにします。\n\n上限（変更不可）:\n・強さ 最大 ${STIM_LIMITS.zapMaxIntensity}/100\n・${STIM_LIMITS.zapMinIntervalMs/1000}秒に1回まで\n・1乗車 ${STIM_LIMITS.zapMaxPerRide}回・1日 ${STIM_LIMITS.zapMaxPerDay}回まで\n・1回あたり最大 ${STIM_LIMITS.zapMaxPulsesPerEvent} パルス\n\nよろしいですか？`,
+      `Switch the stimulus to ZAP.\n\nEnforced limits:\n• intensity max ${STIM_LIMITS.zapMaxIntensity}/100\n• at most once per ${STIM_LIMITS.zapMinIntervalMs/1000}s\n• ${STIM_LIMITS.zapMaxPerRide} per ride, ${STIM_LIMITS.zapMaxPerDay} per day\n• max ${STIM_LIMITS.zapMaxPulsesPerEvent} pulses per stimulus\n\nContinue?`);
+    if (!confirm(okMsg)) return;
+  }
+  localStorage.setItem(STIM_CH_KEY, v);
+  renderStimUI();
+}
+function setPatternPolicy(v){ localStorage.setItem(PAT_POLICY_KEY, v); renderStimUI(); }
+function setPatternFixed(id){ localStorage.setItem(PAT_FIXED_KEY, id); renderStimUI(); }
+
+function renderStimUI(){
+  if (!$("segStimCh")) return;                 // settings sheet not in this build
+  const ch = stimChannel(), pol = patternPolicy(), fixed = patternFixedId();
+
+  document.querySelectorAll("#segStimCh button").forEach(b => {
+    b.classList.toggle("on", b.dataset.pref === ch);
+    b.classList.toggle("danger", b.dataset.pref === "zap");
+  });
+  document.querySelectorAll("#segStimPolicy button").forEach(b =>
+    b.classList.toggle("on", b.dataset.pref === pol));
+
+  // Under a varying policy the app picks the pattern, so highlighting one would misrepresent
+  // what will actually fire. The grid then reads as the pool + its exposure counts instead.
+  const isFixed = pol === "fixed";
+  $("patGridT").innerHTML = isFixed
+    ? '<span class="ja">固定パターン</span><span class="en">Fixed pattern</span>'
+    : '<span class="ja">パターン一覧・提示回数</span><span class="en">Pattern pool &amp; exposures</span>';
+
+  $("patGrid").innerHTML = PATTERNS.map(p => {
+    const n = stimExposures(p.id);
+    const on = isFixed && p.id === fixed ? " on" : "";
+    return `<button class="pat-chip${on}" onclick="setPatternFixed('${p.id}')">`
+         + `<span class="nm">${tt(p.ja, p.en)}<em>${n}${tt("回","×")}</em></span>`
+         + `<span class="shape">${patternGlyph(p)}</span></button>`;
+  }).join("");
+
+  const total = PATTERNS.reduce((n,p) => n + stimExposures(p.id), 0);
+  $("stimStatus").textContent = ch === "zap"
+    ? tt(`本日の電気刺激 ${_stimToday()}/${STIM_LIMITS.zapMaxPerDay}回 · 総提示 ${total}回`,
+         `Zaps today ${_stimToday()}/${STIM_LIMITS.zapMaxPerDay} · ${total} total exposures`)
+    : tt(`総提示 ${total}回`, `${total} total exposures`);
+
+  $("stimHint").innerHTML = isFixed
+    ? '<span class="ja">毎回おなじパターン。慣れ（馴化）が起きるかを見る<b>対照条件</b>です。</span>'
+    + '<span class="en">Same pattern every alert — the <b>control condition</b>, where habituation should show up.</span>'
+    : (pol === "random"
+      ? '<span class="ja">毎回ちがうパターン（直前とは同じにならない）。馴化を防げるかを見る条件です。</span>'
+        + '<span class="en">A different pattern each alert, never repeating the previous one — the intervention.</span>'
+      : '<span class="ja">決まった順に巡回します。変化はしますが順序は学習されうる中間条件です。</span>'
+        + '<span class="en">Cycles in a fixed order — varied, but the sequence itself can be learned.</span>');
+}
+
+// Preview the pattern shown in the grid. Deliberately does NOT use stimSelectPattern(): that
+// would advance the rotation counter and count an exposure, so testing the UI would alter the
+// experiment. Always previews the highlighted pattern, and never counts.
+async function patternPreview(){
+  if (!bleConnected()){ alert(tt("先にデバイスを接続してください。", "Connect a device first.")); return; }
+  const pat = patternById(patternFixedId());
+  if (IS_NATIVE && _NT){
+    try { await _NT.firePattern({ patternId: pat.id, strength: hapticStrength(), channel: stimChannel() }); }
+    catch(e){ alert(tt("送信できませんでした: ", "Not sent: ") + (e.message || e)); }
+    return;
+  }
+  const ok = await blePlayPattern(pat, hapticStrength(), stimChannel(), { countExposure:false });
+  if (!ok) alert(tt("送信できませんでした: ", "Not sent: ") + stimLastDecision);
+  renderStimUI();
+}
+
 // Send a signal to the connected device: value 0 = clear/off, 1..10 = alert strength.
-// The connected device's encode() turns that intent into its own characteristic write(s).
-async function bleSend(value){
+// `channel` is "vibe" (default) or "zap". The connected device's encode() turns the approved
+// intensity into its own characteristic write(s).
+//
+// EVERY actuating send passes stimCheck() first — the gate is here, at the chokepoint, rather
+// than in the callers, so no future caller can route around it. Clear/off bypasses it entirely:
+// silencing a device must never be blockable.
+async function bleSend(value, channel){
   const kind = S.ble.kind;
   if (!kind || !DEVICES[kind]) return;
   const dev = DEVICES[kind];
-  const writes = dev.encode(value);
+  channel = channel || "vibe";
+
+  let intensity = value <= 0 ? 0 : Math.min(10, Math.max(1, value)) * 10;
+  if (intensity > 0){
+    const d = stimCheck(channel, intensity);
+    stimLastDecision = `${d.allowed?"allow":"BLOCK"} ${channel} intensity=${d.intensity} (${d.reason})`;
+    if (!d.allowed){ console.info("stimulus suppressed:", d.reason); return; }
+    intensity = d.intensity;
+  } else {
+    stimLastDecision = "clear";
+  }
+
+  const writes = dev.encode(intensity, channel);
+  const done = () => { if (intensity > 0) stimRecordFired(channel); };
   if (IS_NATIVE && _BLE && S.ble.deviceId){
     for (const w of writes){
       try {
         // Capacitor bridge transfers binary as base64
         const b64 = btoa(String.fromCharCode.apply(null, w.value));
         await _BLE.write({ deviceId:S.ble.deviceId, service:dev.service, characteristic:w.characteristic, value:b64 });
+        done();                                  // only a write that landed consumes the budget
       } catch(e){ console.warn("BLE write failed", e.message); }
     }
     return;
@@ -2041,7 +2412,7 @@ async function bleSend(value){
   for (const w of writes){
     const ch = S.ble.chars[w.characteristic];
     if (!ch) continue;
-    try { await ch.writeValue(w.value); }
+    try { await ch.writeValue(w.value); done(); }
     catch(e){ console.warn("BLE write failed", e.message); }
   }
 }
@@ -2203,7 +2574,18 @@ function updateExportBtn(){
 function exportLog(){
   const log = loadLog();
   if (!log.length){ alert(tt("まだ記録がありません。", "No response times logged yet.")); return; }
-  const cols = ["awakeAt","responseSec","line","train","trainType","dest","alertStopsBefore","stopsAtAlert","alertSource","delaySec","ble","alertTiming"];
+  // Columns are APPEND-ONLY so previously exported files stay parseable. The habituation block
+  // at the end is what makes a row identifiable as an experimental condition:
+  //   patternId/patternPolicy/stimChannel — the independent variable and how it was chosen
+  //   exposures    — prior deliveries of THAT pattern. The key covariate: habituation tracks
+  //                  exposure count, not calendar time, so without it "habituated" and "tired
+  //                  today" are indistinguishable in the data.
+  //   stimDecision — "fired", or why the limiter suppressed it. A suppressed stimulus still
+  //                  produces a row, and must not be read as a slow response to a real one.
+  // NOTE: this is the THIRD semantics epoch for this CSV (see alert-counts-physical-stations
+  // for the 2026-07-03 split); rows before 2026-07-23 have none of these fields.
+  const cols = ["awakeAt","responseSec","line","train","trainType","dest","alertStopsBefore","stopsAtAlert","alertSource","delaySec","ble","alertTiming",
+                "patternId","patternPolicy","stimChannel","exposures","stimDecision"];
   const csv = [cols.join(",")]
     .concat(log.map(r => cols.map(c => { const v = r[c]; return /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : (v ?? ""); }).join(",")))
     .join("\r\n");

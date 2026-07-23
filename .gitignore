@@ -3,3 +3,8 @@ node_modules/
 .DS_Store
 Thumbs.db
 .env
+
+# Exported response-time logs. This is participant experiment data, not source — it lands here
+# because the CSV export writes to the repo root, and a careless `git add -A` would otherwise
+# publish it to a GitHub repo. Keep the files; just never commit them.
+norisugoshi_response_times_*.csv
