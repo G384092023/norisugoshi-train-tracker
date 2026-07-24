@@ -845,7 +845,18 @@ async function hapticPreview(){
 
 Proceed?`))) return;
     await bleSend(s, "zap");
-    renderStimUI();                       // the daily zap counter just moved
+    // The limiter can refuse this (refractory, per-ride or per-day cap) and bleSend returns
+    // quietly. Without this check the button would appear to do nothing at all, and the wearer
+    // would have no way to tell a suppressed zap from a broken connection.
+    // Success always records "allow ..."; anything else is a refusal, on web and native alike.
+    if (!/^allow/.test(stimLastDecision)){
+      alert(tt(`電気刺激は送信されませんでした:
+
+`, `Zap NOT delivered:
+
+`) + stimLastDecision);
+    }
+    renderStimUI();                       // the daily zap counter may have moved
     return;
   }
   // duration scales with the 5-100 percent setting (was *80 on the old 1-10 step, which would
