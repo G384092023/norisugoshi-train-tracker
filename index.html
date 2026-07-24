@@ -406,16 +406,16 @@
         <button class="btn ghost icon-btn" style="margin-left:auto" onclick="connectBLE()"><span class="ja">接続</span><span class="en">Connect</span></button>
         <button class="btn ghost icon-btn" id="btnBleTest" onclick="bleTest()" disabled><span class="ja">テスト</span><span class="en">Test</span></button>
       </div>
-      <details class="info">
+      <!-- Entirely browser-specific, so the whole block is web-only: inside the installed app
+           there is no flag to toggle and no alternative browser to install. -->
+      <details class="info web-only">
         <summary><span class="ja">接続できないとき</span><span class="en">Connection help</span></summary>
         <div class="body ja">
-          <span class="web-only"><b>Android(ブラウザ):</b> スキャンには「位置情報」を ON に（アプリ版では不要です）。<br></span>
-          <b>Brave:</b> <code>brave://flags/#brave-web-bluetooth-api</code> を有効に。<br>
+          <b>Brave（多くはこれ）:</b> <code>brave://flags/#brave-web-bluetooth-api</code> を有効に。ブラウザ更新で無効に戻ることがあります。<br>
           <b>iPhone:</b> Safari/Chrome は非対応 — 無料の <b>Bluefy</b> ブラウザで開いてください。
         </div>
         <div class="body en">
-          <span class="web-only"><b>Android (browser):</b> turn <b>Location</b> ON to scan. The installed app does not need it.<br></span>
-          <b>Brave:</b> enable <code>brave://flags/#brave-web-bluetooth-api</code>.<br>
+          <b>Brave (usually this):</b> enable <code>brave://flags/#brave-web-bluetooth-api</code>. A browser update can switch it back off.<br>
           <b>iPhone:</b> Safari/Chrome aren’t supported — open in the free <b>Bluefy</b> browser.
         </div>
       </details>
@@ -2097,21 +2097,22 @@ Open the https://…onrender.com address (not an http:// or IP address).`));
   }catch(e){
     setBlePill(false);
     if (e.name === "NotFoundError"){
-      // The Location line is WEB-ONLY and stays: a browser cannot assert neverForLocation on
-      // behalf of arbitrary pages, so Chrome for Android still refuses to scan without it
-      // (confirmed by testing 2026-07-24). The installed app asserts it and does not need it.
+      // No Location line anywhere: tested 2026-07-24, the WEB app also scans with Location
+      // Services OFF, so browsers evidently assert neverForLocation too. An earlier failure that
+      // looked like a Location problem was actually Brave's Web Bluetooth flag reverting to
+      // disabled — which a browser update can do again, hence the Brave line below.
       alert(tt(`デバイスが選ばれていない／見つかりませんでした。
 
 確認:
 ・Pavlok の電源が入っていて、公式アプリにつながっていない
 ・スマホの Bluetooth が ON
-・Android のブラウザのみ: 位置情報を ON にし、「付近のデバイス」を許可`,
+・Brave をお使いなら brave://flags/#brave-web-bluetooth-api が有効か確認（更新で戻ることがあります）`,
                `No device selected / none found.
 
 Checklist:
 • Pavlok is awake and not held by its own app
 • Phone Bluetooth is ON
-• Android browsers only: turn ON Location, and allow the browser's Nearby-devices permission`));
+• On Brave, check brave://flags/#brave-web-bluetooth-api is still enabled (updates can reset it)`));
     } else {
       alert(tt("接続に失敗しました: ", "BLE connect failed: ") + e.name + " — " + e.message);
     }
