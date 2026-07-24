@@ -844,7 +844,7 @@ async function hapticPreview(){
                     `⚡ This delivers ONE REAL ZAP at ${s}%.
 
 Proceed?`))) return;
-    await bleSend(s, "zap", { test:true });   // supervised: exempt from the daily cap
+    await bleSend(s, "zap");
     // The limiter can refuse this (refractory, per-ride or per-day cap) and bleSend returns
     // quietly. Without this check the button would appear to do nothing at all, and the wearer
     // would have no way to tell a suppressed zap from a broken connection.
@@ -1028,7 +1028,6 @@ function initPlugins(){
 }
 window.addEventListener("load", initPlugins);
 
-init();
 function onReady(){
   updateExportBtn();                                   // show how many records are saved
   if (IS_NATIVE) $("screenNote").style.display = "none"; // native won't be paused by backgrounding the browser
@@ -2217,11 +2216,7 @@ const _stimToday = () => {
 function stimStartRide(){ _stim.zapsThisRide = 0; }
 // Decide whether a stimulus may fire, and at what intensity. Does NOT record the firing —
 // that only happens once a write actually succeeds, so a failed write can't eat the budget.
-// `isTest` = a deliberate, supervised firing from settings. Tests SKIP the daily cap: that cap
-// bounds UNATTENDED exposure over a day, and letting a tuning session eat it would silently block
-// the real alerts the study depends on (a suppressed alert shows no popup, by design). The
-// refractory and per-ride cap still apply, so a test can never become a rapid burst.
-function stimCheck(channel, intensity, isTest){
+function stimCheck(channel, intensity){
   const now = Date.now();
   if (channel !== "zap"){
     if (now - _stim.lastVibeAt < STIM_LIMITS.vibeMinIntervalMs)
@@ -2234,18 +2229,17 @@ function stimCheck(channel, intensity, isTest){
              reason:`zap refractory — ${((refractoryMs-(now-_stim.lastZapAt))/1000).toFixed(1)}s remaining` };
   if (_stim.zapsThisRide >= STIM_LIMITS.zapMaxPerRide)
     return { allowed:false, intensity:0, reason:`zap per-ride cap reached (${STIM_LIMITS.zapMaxPerRide})` };
-  if (!isTest && _stimToday() >= STIM_LIMITS.zapMaxPerDay)
+  if (_stimToday() >= STIM_LIMITS.zapMaxPerDay)
     return { allowed:false, intensity:0, reason:`zap daily cap reached (${STIM_LIMITS.zapMaxPerDay})` };
   const capped = Math.max(1, Math.min(intensity, STIM_LIMITS.zapMaxIntensity, STIM_LIMITS.zapHardMaxIntensity));
   return { allowed:true, intensity:capped,
            reason: capped < intensity ? `ok (intensity clamped ${intensity}->${capped})` : "ok" };
 }
-function stimRecordFired(channel, countDaily){
+function stimRecordFired(channel){
   const now = Date.now();
   if (channel !== "zap"){ _stim.lastVibeAt = now; return; }
   _stim.lastZapAt = now;
   _stim.zapsThisRide++;
-  if (countDaily === false) return;            // supervised test — see stimCheck(..., isTest)
   try {
     localStorage.setItem(STIM_DAY_KEY,
       JSON.stringify({ day:new Date().toLocaleDateString("sv"), n:_stimToday()+1 }));
@@ -2259,8 +2253,8 @@ let stimLastDecision = "";
 // Gate a whole PATTERN as ONE event. Run per-write, the refractory period would block every
 // step after the first and silently truncate every pattern to its opening pulse — the caps
 // would destroy the experiment rather than protect the wearer.
-function stimCheckPattern(channel, peakIntensity, totalPulses, isTest){
-  const d = stimCheck(channel, peakIntensity, isTest);
+function stimCheckPattern(channel, peakIntensity, totalPulses){
+  const d = stimCheck(channel, peakIntensity);
   if (!d.allowed || channel !== "zap") return d;
   if (totalPulses > STIM_LIMITS.zapMaxPulsesPerEvent)
     return { allowed:false, intensity:0,
@@ -2375,7 +2369,7 @@ async function blePlayPattern(pattern, strength, channel, opts){
 
   const base = Math.min(100, Math.max(1, strength));   // already a percent
   const peak = Math.round(base * patternPeak(pattern) / 100);
-  const d = stimCheckPattern(channel, peak, patternPulses(pattern), opts && opts.test);
+  const d = stimCheckPattern(channel, peak, patternPulses(pattern));
   stimLastDecision = `${pattern.id}: ${d.allowed?"allow":"BLOCK"} (${d.reason})`;
   if (!d.allowed){ console.info("pattern suppressed:", d.reason); return false; }
 
@@ -2394,7 +2388,7 @@ async function blePlayPattern(pattern, strength, channel, opts){
     }, at);
     at += playbackMs(count, channel) + s.gap;
   }
-  stimRecordFired(channel, !(opts && opts.test));            // safety budget: always
+  stimRecordFired(channel);                                  // safety budget: always
   if (!opts || opts.countExposure !== false) stimRecordExposure(pattern.id);
   return true;
 }
@@ -2481,8 +2475,7 @@ async function patternPreview(){
     catch(e){ alert(tt("送信できませんでした: ", "Not sent: ") + (e.message || e)); }
     return;
   }
-  const ok = await blePlayPattern(pat, hapticStrength(), stimChannel(),
-                                  { countExposure:false, test:true });
+  const ok = await blePlayPattern(pat, hapticStrength(), stimChannel(), { countExposure:false });
   if (!ok) alert(tt("送信できませんでした: ", "Not sent: ") + stimLastDecision);
   renderStimUI();
 }
@@ -2502,7 +2495,7 @@ async function bleSend(value, channel, opts){
 
   let intensity = value <= 0 ? 0 : Math.min(100, Math.max(1, value));   // already a percent
   if (intensity > 0){
-    const d = stimCheck(channel, intensity, opts && opts.test);
+    const d = stimCheck(channel, intensity);
     stimLastDecision = `${d.allowed?"allow":"BLOCK"} ${channel} intensity=${d.intensity} (${d.reason})`;
     if (!d.allowed){ console.info("stimulus suppressed:", d.reason); return; }
     intensity = d.intensity;
@@ -2511,7 +2504,7 @@ async function bleSend(value, channel, opts){
   }
 
   const writes = dev.encode(intensity, channel);
-  const done = () => { if (intensity > 0) stimRecordFired(channel, !(opts && opts.test)); };
+  const done = () => { if (intensity > 0) stimRecordFired(channel); };
   if (IS_NATIVE && _BLE && S.ble.deviceId){
     for (const w of writes){
       try {
@@ -2718,6 +2711,24 @@ function clearLog(){
   try { localStorage.removeItem(LOG_KEY); } catch(_){}
   S.times = []; updateExportBtn();
 }
+
+// ⚠️ BOOT LAST, AFTER EVERY DECLARATION ABOVE.
+// This used to run from the middle of the script. init() calls onReady() -> applyLang() ->
+// applyLangDynamic() -> renderStimUI(), which reads `const` bindings (PATTERNS, STIM_LIMITS,
+// stimChannel…) declared ~1000 lines further down. Those were still in the temporal dead zone,
+// so onReady() threw, init()'s promise rejected, and BOTH the slider sync and the train fetch
+// silently never happened — the app looked like it needed a manual refresh to load trains, and
+// like it forgot the strength setting (the value was saved correctly; the UI just never read it).
+// Booting from the end removes that whole class of bug rather than patching this one instance.
+//
+// The .catch is the other half: an un-awaited async init() swallows its own failure, which is
+// exactly why this stayed invisible. Never let boot fail quietly again.
+init().catch(e => {
+  console.error("init() failed:", e);
+  const s = $("s1sub");
+  if (s) s.textContent = tt("読込に失敗しました", "failed to load");
+  showErr(tt("起動に失敗しました: ", "Startup failed: ") + (e && e.message ? e.message : e));
+});
 </script>
 </body>
 </html>
