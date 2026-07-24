@@ -549,6 +549,16 @@
     </div>
 
     <div class="sec">
+      <div class="sec-t"><span class="ja">リストバンド</span><span class="en">Wristband</span></div>
+      <div class="ble-line" style="margin-top:0">
+        <span class="ble-pill" id="blePill2"><span class="ja">未接続</span><span class="en">Not connected</span></span>
+        <button class="btn ghost icon-btn" style="margin-left:auto" onclick="connectBLE()"><span class="ja">接続</span><span class="en">Connect</span></button>
+        <button class="btn ghost icon-btn" id="btnBleDisc" onclick="disconnectBLE()" disabled><span class="ja">切断</span><span class="en">Disconnect</span></button>
+      </div>
+      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">ここから接続できます（ステップ3まで進む必要はありません）。切断すると他の機器から使えます。</span><span class="en">Connect here without going through to step 3. Disconnecting frees the band for another device.</span></p>
+    </div>
+
+    <div class="sec">
       <div class="sec-t"><span class="ja">刺激パターン（研究）</span><span class="en">Stimulus pattern (study)</span></div>
 
       <div class="sub-t"><span class="ja">刺激の種類</span><span class="en">Channel</span></div>
@@ -620,7 +630,7 @@ const SESSION_MAX_MS = 3*60*60*1000;  // hard 3h auto-stop (parity with the nati
 // BLE — the app can drive more than one kind of wrist device. We AUTO-DETECT which one
 // connected (by its advertised GATT service, falling back to the advertised name), then
 // translate the app's universal "signal intent" into that device's own write:
-//   signal value 0 = clear/off · 1..10 = alert at strength 1..10 (from hapticStrength()).
+//   signal value 0 = clear/off · 5..100 = alert at that PERCENT (from hapticStrength()).
 // To add a device, add an entry to DEVICES below. Every layer (web here, native Java
 // BleManager) speaks the SAME 0/1..10 intent; only encode() differs per device.
 const BLE_ALERT = 0x01, BLE_CLEAR = 0x00;   // intent values passed to bleSend()
@@ -794,7 +804,7 @@ function applyLangDynamic(){
   renderStimUI();   // pattern chips bake tt() into innerHTML, so they need a rebuild on a switch
 }
 
-function openSheet(){ renderRideHistory(); renderStimUI(); $("sheetOvl").classList.add("show"); $("sheet").classList.add("show"); }
+function openSheet(){ renderRideHistory(); renderStimUI(); setBlePill(bleConnected(), S.ble.kind && DEVICES[S.ble.kind] ? DEVICES[S.ble.kind].label : ""); $("sheetOvl").classList.add("show"); $("sheet").classList.add("show"); }
 function closeSheet(){ $("sheetOvl").classList.remove("show"); $("sheet").classList.remove("show"); }
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
 
@@ -816,11 +826,33 @@ function setHapticStrength(v){ localStorage.setItem(HAPTIC_KEY, String(v)); $("h
 // A wrist device is connected if we hold GATT characteristics (web) or a native deviceId.
 function bleConnected(){ return !!(S.ble.deviceId || (S.ble.chars && Object.keys(S.ble.chars).length)); }
 function bleReset(){ S.ble.device = null; S.ble.kind = null; S.ble.chars = null; S.ble.deviceId = null; }
-function hapticPreview(){
-  const s = hapticStrength();
-  if (bleConnected()){ bleSend(s); setTimeout(() => bleSend(BLE_CLEAR), 1200); }
-  else if (IS_NATIVE && _HP){ _HP.vibrate({ duration: 120 + s * 80 }).catch(()=>{}); }
-  else if (navigator.vibrate){ navigator.vibrate(120 + s * 80); }
+// Preview the CURRENTLY SELECTED channel, not vibrate-only: if the study is set to zap, the
+// point of a strength test is to feel the zap at that strength.
+// A zap test is confirmed first — it delivers a real shock, and unlike the vibrate preview there
+// is no harmless fallback if the band is not connected (a phone cannot zap).
+async function hapticPreview(){
+  const s = hapticStrength(), ch = stimChannel();
+  if (ch === "zap"){
+    if (!bleConnected()){
+      alert(tt("電気刺激のテストにはリストバンドの接続が必要です。",
+               "Connect the wristband first — a phone cannot deliver a zap."));
+      return;
+    }
+    if (!confirm(tt(`⚡ 電気刺激を ${s}% で1回テストします。
+
+実行しますか？`,
+                    `⚡ This delivers ONE REAL ZAP at ${s}%.
+
+Proceed?`))) return;
+    await bleSend(s, "zap");
+    renderStimUI();                       // the daily zap counter just moved
+    return;
+  }
+  // duration scales with the 5-100 percent setting (was *80 on the old 1-10 step, which would
+  // now run for eight seconds)
+  if (bleConnected()){ bleSend(s, "vibe"); setTimeout(() => bleSend(BLE_CLEAR), 1200); }
+  else if (IS_NATIVE && _HP){ _HP.vibrate({ duration: 120 + s * 8 }).catch(()=>{}); }
+  else if (navigator.vibrate){ navigator.vibrate(120 + s * 8); }
 }
 const tail = (s) => (s || "").split(".").pop();
 function showErr(msg){ const e=$("err"); if(!msg){e.classList.remove("show");return;} e.textContent=msg; e.classList.add("show"); }
@@ -993,6 +1025,7 @@ function onReady(){
   applyLang();                                         // sync the language control + option/attr labels
   $("hapRange").value = hapticStrength();
   $("hapVal").textContent = hapticStrength() + "%";
+  setBlePill(bleConnected(), S.ble.kind && DEVICES[S.ble.kind] ? DEVICES[S.ble.kind].label : "");
   renderStimUI();                                      // study controls + exposure counts
 }
 // follow the device locale live while the preference is "auto"
@@ -2112,9 +2145,25 @@ async function connectBLE_native(){
   }
 }
 function setBlePill(on,name){
-  const p=$("blePill"); p.classList.toggle("on",on);
-  p.textContent = on ? `🟢 ${name||"connected"}` : "not connected";
-  if (!on) $("btnBleTest").disabled = true;
+  // Two pills now: the one in step 3 and the one in settings. Both must track the same state,
+  // or the settings screen will claim "not connected" for a band that is in fact connected.
+  for (const id of ["blePill","blePill2"]){
+    const p=$(id); if (!p) continue;
+    p.classList.toggle("on",on);
+    p.textContent = on ? `🟢 ${name||"connected"}` : "not connected";
+  }
+  if ($("btnBleDisc")) $("btnBleDisc").disabled = !on;
+  if (!on && $("btnBleTest")) $("btnBleTest").disabled = true;
+}
+
+// Release the band so another device (or the PC test rig) can take it. Without this the only
+// way to free it was to force-stop the app.
+async function disconnectBLE(){
+  try {
+    if (IS_NATIVE && _NT) await _NT.bleDisconnect();
+    else if (S.ble.device && S.ble.device.gatt && S.ble.device.gatt.connected) S.ble.device.gatt.disconnect();
+  } catch(e){ console.warn("disconnect failed", e.message); }
+  bleReset(); setBlePill(false); renderStimUI();
 }
 // ============================================================ SAFETY ENVELOPE
 // Mirrors StimulusLimiter.java — KEEP THE TWO IN SYNC. Firing over direct BLE bypasses every
