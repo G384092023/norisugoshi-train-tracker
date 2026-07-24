@@ -407,12 +407,12 @@
       <details class="info">
         <summary><span class="ja">接続できないとき</span><span class="en">Connection help</span></summary>
         <div class="body ja">
-          <b>Android:</b> スキャンには「位置情報」を ON に（Bluetooth の仕様で、位置情報は使いません）。<br>
+          <b>Android(ブラウザ):</b> スキャンには「位置情報」を ON に（アプリ版では不要です）。<br>
           <b>Brave:</b> <code>brave://flags/#brave-web-bluetooth-api</code> を有効に。<br>
           <b>iPhone:</b> Safari/Chrome は非対応 — 無料の <b>Bluefy</b> ブラウザで開いてください。
         </div>
         <div class="body en">
-          <b>Android:</b> turn <b>Location</b> ON to scan (a Bluetooth requirement — no location is used).<br>
+          <b>Android (browser):</b> turn <b>Location</b> ON to scan. The installed app does not need it.<br>
           <b>Brave:</b> enable <code>brave://flags/#brave-web-bluetooth-api</code>.<br>
           <b>iPhone:</b> Safari/Chrome aren’t supported — open in the free <b>Bluefy</b> browser.
         </div>
@@ -636,22 +636,6 @@ const SESSION_MAX_MS = 3*60*60*1000;  // hard 3h auto-stop (parity with the nati
 const BLE_ALERT = 0x01, BLE_CLEAR = 0x00;   // intent values passed to bleSend()
 
 const DEVICES = {
-  // Custom Arduino/ESP32 firmware — Nordic UART, one command byte (0x00 off, 0x01..0x0A).
-  // UUIDs MUST match the Arduino sketch (arduino/norisugoshi_ble/).
-  arduino: {
-    label: "Norisugoshi band",
-    namePrefix: "Norisugoshi",
-    service: "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
-    chars: ["6e400002-b5a3-f393-e0a9-e50e24dcca9e"], // the writable command characteristic(s)
-    momentary: false,                                // persistent on/off; strength 0 turns it off
-    // → array of { characteristic, value:Uint8Array } writes to perform for this signal.
-    // `intensity` arrives on the universal 0-100 scale (already limiter-approved); this
-    // firmware wants 0x00 off / 0x01..0x0A, so map back down.
-    encode(intensity, _channel){
-      const byte = intensity <= 0 ? BLE_CLEAR : Math.min(10, Math.max(1, Math.round(intensity/10)));
-      return [{ characteristic: this.chars[0], value: Uint8Array.of(byte) }];
-    },
-  },
   // Pavlok 3 — commercial device. Protocol CONFIRMED 2026-07-23 by decrypting the official
   // app's own traffic (nRF52840 sniffer + a fresh LE Legacy pairing) and then reproducing the
   // write from a PC — the band physically buzzed. See memory pavlok-ble-protocol.
@@ -832,12 +816,15 @@ function bleReset(){ S.ble.device = null; S.ble.kind = null; S.ble.chars = null;
 // is no harmless fallback if the band is not connected (a phone cannot zap).
 async function hapticPreview(){
   const s = hapticStrength(), ch = stimChannel();
+  // Not connected? Offer to connect, on BOTH channels. Vibrate used to fall back silently to the
+  // phone's own motor, which tests the phone rather than the wristband — a misleading result when
+  // the point is to calibrate the band.
+  if (!bleConnected()){
+    if (confirm(tt("リストバンドが接続されていません。今すぐ接続しますか？",
+                   "The wristband is not connected. Connect it now?"))) await connectBLE();
+    if (!bleConnected()) return;
+  }
   if (ch === "zap"){
-    if (!bleConnected()){
-      alert(tt("電気刺激のテストにはリストバンドの接続が必要です。",
-               "Connect the wristband first — a phone cannot deliver a zap."));
-      return;
-    }
     if (!confirm(tt(`⚡ 電気刺激を ${s}% で1回テストします。
 
 実行しますか？`,
@@ -2099,9 +2086,9 @@ async function connectBLE(){
     setBlePill(false);
     if (e.name === "NotFoundError"){
       alert("No device selected / none found.\n\nChecklist:\n"
-        + "• Wrist device powered on (Norisugoshi band advertising, or Pavlok awake & not held by its own app)\n"
+        + "• Pavlok is awake and not held by its own app\n"
         + "• Phone Bluetooth is ON\n"
-        + "• Android only: turn ON Location, and allow this browser's \"Nearby devices\"/Location permission");
+        + "• Android browsers only: turn ON Location, and allow the browser's Nearby-devices permission");
     } else {
       alert("BLE connect failed: " + e.name + " — " + e.message);
     }
@@ -2142,7 +2129,7 @@ async function connectBLE_native(){
     const name = result?.device?.name ?? result?.name ?? "";
     if (!deviceId) throw new Error("No device returned from requestDevice");
     await _BLE.connect({ deviceId });
-    const kind = deviceByName(name) || "arduino";   // native writes by UUID; kind picks the protocol
+    const kind = deviceByName(name) || "pavlok";    // native writes by UUID; kind picks the protocol
     S.ble.deviceId = deviceId; S.ble.kind = kind;
     // listen for disconnect
     _BLE.addListener("onDisconnected", (ev) => {
@@ -2153,7 +2140,7 @@ async function connectBLE_native(){
   } catch(e) {
     setBlePill(false);
     alert("BLE connect failed: " + e.message + "\n\nChecklist:\n"
-      + "• Wrist device powered on (Norisugoshi band advertising, or Pavlok awake)\n"
+      + "• Pavlok is awake and not held by its own app\n"
       + "• Phone Bluetooth ON\n"
       + "• Granted 'Nearby devices' permission when prompted");
   }
@@ -2349,7 +2336,6 @@ function stimSelectPattern(policy, fixedId){
 
 // One step of a pattern: `count` pulses at `intensity`, EXECUTE set, COMMIT clear.
 function encodeStep(dev, channel, intensity, count){
-  if (dev.chars.length < 2) return dev.encode(intensity, channel);  // arduino: no burst support
   const b0 = (count & 0x3F) | 0x80;
   return (channel === "zap")
     ? [{ characteristic: dev.chars[1], value: Uint8Array.of(b0, intensity) }]
