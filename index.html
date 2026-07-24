@@ -301,6 +301,8 @@
   .seg button{ flex:1; min-height:38px; border:none; border-radius:8px; background:transparent; color:var(--ink2);
                font-size:13px; font-weight:650; cursor:pointer; font-family:inherit; }
   .seg button.on{ background:var(--accent); color:var(--accent-ink); }
+  /* browser-only guidance — meaningless inside the installed app, which asserts neverForLocation */
+  :root[data-native] .web-only{ display:none; }
   .sub-t{ font-size:11px; font-weight:650; color:var(--ink2); letter-spacing:.04em; margin:15px 0 7px; }
   .sub-t:first-of-type{ margin-top:0; }
   .pat-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(104px,1fr)); gap:7px; }
@@ -407,12 +409,12 @@
       <details class="info">
         <summary><span class="ja">接続できないとき</span><span class="en">Connection help</span></summary>
         <div class="body ja">
-          <b>Android(ブラウザ):</b> スキャンには「位置情報」を ON に（アプリ版では不要です）。<br>
+          <span class="web-only"><b>Android(ブラウザ):</b> スキャンには「位置情報」を ON に（アプリ版では不要です）。<br></span>
           <b>Brave:</b> <code>brave://flags/#brave-web-bluetooth-api</code> を有効に。<br>
           <b>iPhone:</b> Safari/Chrome は非対応 — 無料の <b>Bluefy</b> ブラウザで開いてください。
         </div>
         <div class="body en">
-          <b>Android (browser):</b> turn <b>Location</b> ON to scan. The installed app does not need it.<br>
+          <span class="web-only"><b>Android (browser):</b> turn <b>Location</b> ON to scan. The installed app does not need it.<br></span>
           <b>Brave:</b> enable <code>brave://flags/#brave-web-bluetooth-api</code>.<br>
           <b>iPhone:</b> Safari/Chrome aren’t supported — open in the free <b>Bluefy</b> browser.
         </div>
@@ -1018,6 +1020,7 @@ window.addEventListener("load", initPlugins);
 function onReady(){
   updateExportBtn();                                   // show how many records are saved
   if (IS_NATIVE) $("screenNote").style.display = "none"; // native won't be paused by backgrounding the browser
+  if (IS_NATIVE) document.documentElement.dataset.native = "1";   // hides .web-only guidance
   applyTheme();                                        // sync the settings segmented control + meta theme-color
   applyLang();                                         // sync the language control + option/attr labels
   $("hapRange").value = hapticStrength();
@@ -2058,14 +2061,23 @@ async function connectBLE(){
   if (IS_NATIVE) return connectBLE_native();
   // ---- Web Bluetooth (browser / PWA) ----
   if (!window.isSecureContext){
-    alert("⚠️ Bluetooth needs a secure page.\nOpen the https://…onrender.com address (not an http:// or IP address).");
+    alert(tt(`⚠️ Bluetooth には安全な接続（https）が必要です。
+https://…onrender.com のアドレスで開いてください（http:// や IP アドレスでは使えません）。`,
+             `⚠️ Bluetooth needs a secure page.
+Open the https://…onrender.com address (not an http:// or IP address).`));
     return;
   }
   if (!navigator.bluetooth){
-    alert("⚠️ This browser can't use Bluetooth.\n\n"
-      + "• iPhone/iPad: Safari & Chrome don't support it — install the free \"Bluefy\" browser and open the site there.\n"
-      + "• Brave (Android/desktop): enable  brave://flags/#brave-web-bluetooth-api  then relaunch.\n"
-      + "• Otherwise use Google Chrome or Microsoft Edge.");
+    alert(tt(`⚠️ このブラウザは Bluetooth を使えません。
+
+・iPhone/iPad: Safari と Chrome は非対応です — 無料の「Bluefy」ブラウザを入れて開いてください。
+・Brave (Android/PC): brave://flags/#brave-web-bluetooth-api を有効にして再起動してください。
+・それ以外は Google Chrome か Microsoft Edge をお使いください。`,
+             `⚠️ This browser can't use Bluetooth.
+
+• iPhone/iPad: Safari & Chrome don't support it — install the free "Bluefy" browser and open the site there.
+• Brave (Android/desktop): enable  brave://flags/#brave-web-bluetooth-api  then relaunch.
+• Otherwise use Google Chrome or Microsoft Edge.`));
     return;
   }
   try{
@@ -2085,12 +2097,23 @@ async function connectBLE(){
   }catch(e){
     setBlePill(false);
     if (e.name === "NotFoundError"){
-      alert("No device selected / none found.\n\nChecklist:\n"
-        + "• Pavlok is awake and not held by its own app\n"
-        + "• Phone Bluetooth is ON\n"
-        + "• Android browsers only: turn ON Location, and allow the browser's Nearby-devices permission");
+      // The Location line is WEB-ONLY and stays: a browser cannot assert neverForLocation on
+      // behalf of arbitrary pages, so Chrome for Android still refuses to scan without it
+      // (confirmed by testing 2026-07-24). The installed app asserts it and does not need it.
+      alert(tt(`デバイスが選ばれていない／見つかりませんでした。
+
+確認:
+・Pavlok の電源が入っていて、公式アプリにつながっていない
+・スマホの Bluetooth が ON
+・Android のブラウザのみ: 位置情報を ON にし、「付近のデバイス」を許可`,
+               `No device selected / none found.
+
+Checklist:
+• Pavlok is awake and not held by its own app
+• Phone Bluetooth is ON
+• Android browsers only: turn ON Location, and allow the browser's Nearby-devices permission`));
     } else {
-      alert("BLE connect failed: " + e.name + " — " + e.message);
+      alert(tt("接続に失敗しました: ", "BLE connect failed: ") + e.name + " — " + e.message);
     }
   }
 }
@@ -2115,7 +2138,8 @@ async function bleDetect(server, advName){
 
 async function connectBLE_native(){
   // ---- @capacitor-community/bluetooth-le (native Android) ----
-  if (!_BLE){ alert("BLE plugin not loaded — run npm install + npx cap sync and rebuild."); return; }
+  if (!_BLE){ alert(tt("BLE プラグインが読み込まれていません — npm install と npx cap sync のあと再ビルドしてください。",
+                       "BLE plugin not loaded — run npm install + npx cap sync and rebuild.")); return; }
   try {
     setBlePill(false, "scanning…");
     // androidNeverForLocation MUST match the manifest's usesPermissionFlags on BLUETOOTH_SCAN.
@@ -2139,10 +2163,20 @@ async function connectBLE_native(){
     $("btnBleTest").disabled = false;
   } catch(e) {
     setBlePill(false);
-    alert("BLE connect failed: " + e.message + "\n\nChecklist:\n"
-      + "• Pavlok is awake and not held by its own app\n"
-      + "• Phone Bluetooth ON\n"
-      + "• Granted 'Nearby devices' permission when prompted");
+    // No Location line here: the app asserts neverForLocation, so scanning works with Location
+    // Services OFF (confirmed on-device 2026-07-24, Android 13).
+    alert(tt("接続に失敗しました: ", "BLE connect failed: ") + e.message + tt(`
+
+確認:
+・Pavlok の電源が入っていて、公式アプリにつながっていない
+・スマホの Bluetooth が ON
+・「付近のデバイス」の許可を与えた`,
+             `
+
+Checklist:
+• Pavlok is awake and not held by its own app
+• Phone Bluetooth ON
+• Granted 'Nearby devices' permission when prompted`));
   }
 }
 function setBlePill(on,name){
