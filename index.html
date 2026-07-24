@@ -2132,7 +2132,11 @@ async function connectBLE_native(){
   if (!_BLE){ alert("BLE plugin not loaded — run npm install + npx cap sync and rebuild."); return; }
   try {
     setBlePill(false, "scanning…");
-    await _BLE.initialize();
+    // androidNeverForLocation MUST match the manifest's usesPermissionFlags on BLUETOOTH_SCAN.
+    // Without it the plugin still demands ACCESS_FINE_LOCATION and Location Services switched ON
+    // at scan time, even on Android 12+ where the manifest assertion makes that unnecessary.
+    // This app never derives location from scan results — it connects to one known wristband.
+    await _BLE.initialize({ androidNeverForLocation: true });
     // Show every supported device; grant access to all known services, then detect by name.
     const result = await _BLE.requestDevice({ optionalServices: bleServices() });
     const deviceId = result?.device?.deviceId ?? result?.deviceId;
@@ -2193,7 +2197,7 @@ const STIM_LIMITS = {
   // untouched and still do the real safety work.
   zapHardMaxIntensity: 100,
   zapMaxIntensity:     100,
-  zapMinIntervalMs:    8000,  // refractory period between zaps
+  zapMinIntervalSec:   8,     // refractory period between zap EVENTS, in seconds
   zapMaxPerRide:       5,
   zapMaxPerDay:        20,
   vibeMinIntervalMs:   400,   // debounce only
@@ -2224,9 +2228,10 @@ function stimCheck(channel, intensity, isTest){
       return { allowed:false, intensity:0, reason:"vibe debounce" };
     return { allowed:true, intensity:Math.max(0, Math.min(100, intensity)), reason:"ok" };
   }
-  if (now - _stim.lastZapAt < STIM_LIMITS.zapMinIntervalMs)
+  const refractoryMs = STIM_LIMITS.zapMinIntervalSec * 1000;
+  if (now - _stim.lastZapAt < refractoryMs)
     return { allowed:false, intensity:0,
-             reason:`zap refractory — ${STIM_LIMITS.zapMinIntervalMs-(now-_stim.lastZapAt)}ms remaining` };
+             reason:`zap refractory — ${((refractoryMs-(now-_stim.lastZapAt))/1000).toFixed(1)}s remaining` };
   if (_stim.zapsThisRide >= STIM_LIMITS.zapMaxPerRide)
     return { allowed:false, intensity:0, reason:`zap per-ride cap reached (${STIM_LIMITS.zapMaxPerRide})` };
   if (!isTest && _stimToday() >= STIM_LIMITS.zapMaxPerDay)
@@ -2404,8 +2409,8 @@ function setStimChannel(v){
   // so it is confirmed explicitly and the active caps are stated rather than buried in code.
   if (v === "zap" && stimChannel() !== "zap"){
     const okMsg = tt(
-      `電気刺激をオンにします。\n\n上限（変更不可）:\n・強さ 最大 ${STIM_LIMITS.zapMaxIntensity}/100\n・${STIM_LIMITS.zapMinIntervalMs/1000}秒に1回まで\n・1乗車 ${STIM_LIMITS.zapMaxPerRide}回・1日 ${STIM_LIMITS.zapMaxPerDay}回まで\n・1回あたり最大 ${STIM_LIMITS.zapMaxPulsesPerEvent} パルス\n\nよろしいですか？`,
-      `Switch the stimulus to ZAP.\n\nEnforced limits:\n• intensity max ${STIM_LIMITS.zapMaxIntensity}/100\n• at most once per ${STIM_LIMITS.zapMinIntervalMs/1000}s\n• ${STIM_LIMITS.zapMaxPerRide} per ride, ${STIM_LIMITS.zapMaxPerDay} per day\n• max ${STIM_LIMITS.zapMaxPulsesPerEvent} pulses per stimulus\n\nContinue?`);
+      `電気刺激をオンにします。\n\n上限（変更不可）:\n・強さ 最大 ${STIM_LIMITS.zapMaxIntensity}/100\n・${STIM_LIMITS.zapMinIntervalSec}秒に1回まで\n・1乗車 ${STIM_LIMITS.zapMaxPerRide}回・1日 ${STIM_LIMITS.zapMaxPerDay}回まで\n・1回あたり最大 ${STIM_LIMITS.zapMaxPulsesPerEvent} パルス\n\nよろしいですか？`,
+      `Switch the stimulus to ZAP.\n\nEnforced limits:\n• intensity max ${STIM_LIMITS.zapMaxIntensity}/100\n• at most once per ${STIM_LIMITS.zapMinIntervalSec}s\n• ${STIM_LIMITS.zapMaxPerRide} per ride, ${STIM_LIMITS.zapMaxPerDay} per day\n• max ${STIM_LIMITS.zapMaxPulsesPerEvent} pulses per stimulus\n\nContinue?`);
     if (!confirm(okMsg)) return;
   }
   localStorage.setItem(STIM_CH_KEY, v);
