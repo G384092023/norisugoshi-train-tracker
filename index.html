@@ -571,7 +571,7 @@
       <div class="seg" id="segStimPolicy">
         <button data-pref="fixed"    onclick="setPatternPolicy('fixed')"><span class="ja">固定</span><span class="en">Fixed</span></button>
         <button data-pref="random"   onclick="setPatternPolicy('random')"><span class="ja">ランダム</span><span class="en">Random</span></button>
-        <button data-pref="rotating" onclick="setPatternPolicy('rotating')"><span class="ja">繰返し</span><span class="en">Repeating</span></button>
+        <button data-pref="repeating" onclick="setPatternPolicy('repeating')"><span class="ja">繰返し</span><span class="en">Repeating</span></button>
       </div>
 
       <div class="sub-t" id="patGridT"></div>
@@ -2336,7 +2336,7 @@ const STIM_CH_KEY = "norisugoshi_stim_channel";
 const PAT_POLICY_KEY = "norisugoshi_pattern_policy";
 const PAT_FIXED_KEY  = "norisugoshi_pattern_fixed";
 const stimChannel    = () => localStorage.getItem(STIM_CH_KEY) || "vibe";
-const patternPolicy  = () => localStorage.getItem(PAT_POLICY_KEY) || "fixed";
+const patternPolicy  = () => { const v = localStorage.getItem(PAT_POLICY_KEY) || "fixed"; return v === "rotating" ? "repeating" : v; };  // "rotating" was the old id
 const patternFixedId = () => localStorage.getItem(PAT_FIXED_KEY) || "single";
 
 // {rotate:int, last:"id", exp:{id:count}} — exposures persist across rides, which they must:
@@ -2356,7 +2356,7 @@ function stimRecordExposure(id){
 function stimSelectPattern(policy, fixedId){
   if (policy === "fixed") return patternById(fixedId);
   const s = patState();
-  if (policy === "rotating"){
+  if (policy === "repeating"){
     const i = (s.rotate || 0) % PATTERNS.length;
     s.rotate = (i + 1) % PATTERNS.length; patSave(s);
     return PATTERNS[i];
