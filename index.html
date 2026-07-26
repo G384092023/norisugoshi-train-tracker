@@ -393,7 +393,7 @@
       <div class="dest-list" id="destList"></div>
       <p class="hint" id="destNote" style="text-align:left; display:none; margin-top:.55rem;"></p>
       <div class="field" style="margin-top:.85rem; max-width:60%">
-        <label class="fld" for="selAlert"><span class="ja">通知タイミング（通過駅も含む）</span><span class="en">Alert before (including pass-through stations)</span></label>
+        <label class="fld" for="selAlert"><span class="ja">通知タイミング（通過駅含む）</span><span class="en">Alert before (including pass-through stations)</span></label>
         <select id="selAlert">
           <option value="1">1駅前</option>
           <option value="2" selected>2駅前</option>
@@ -421,7 +421,7 @@
       </details>
     </div>
 
-    <button class="btn primary" id="btnStart" onclick="startTracking()" disabled><span class="ja">追跡開始</span><span class="en">Start tracking</span></button>
+    <button class="btn primary" id="btnStart" onclick="startTracking()" disabled><span class="ja">開始</span><span class="en">Start tracking</span></button>
 
     <p class="hint"><span class="ja">データ: ODPT 公共交通オープンデータ · 更新 30–60秒</span><span class="en">Data: ODPT Open Data · updates every 30–60s</span></p>
   </div>
@@ -484,8 +484,8 @@
       <div class="srow"><span class="sk"><span class="ja">列車</span><span class="en">Train</span></span><span class="sv" id="tNo">—</span></div>
       <div class="srow"><span class="sk"><span class="ja">現在地</span><span class="en">Position</span></span><span class="sv" id="tPos">—</span></div>
       <div class="srow"><span class="sk"><span class="ja">行先</span><span class="en">Bound for</span></span><span class="sv" id="tDest">—</span></div>
-      <div class="srow"><span class="sk"><span class="ja">到着予定</span><span class="en">Scheduled</span></span><span class="sv" id="etaSched">—</span></div>
-      <div class="srow"><span class="sk"><span class="ja">予測</span><span class="en">ETA</span></span><span class="sv" id="etaNow">—</span></div>
+      <div class="srow"><span class="sk"><span class="ja">時刻表</span><span class="en">Scheduled</span></span><span class="sv" id="etaSched">—</span></div>
+      <div class="srow"><span class="sk"><span class="ja">予想</span><span class="en">ETA</span></span><span class="sv" id="etaNow">—</span></div>
       <div class="srow"><span class="sk"><span class="ja">遅延</span><span class="en">Delay</span></span><span class="sv" id="tDelay">—</span></div>
       <div class="srow"><span class="sk"><span class="ja">状態</span><span class="en">Status</span></span><span class="sv"><span class="badge gray" id="tStatus">…</span></span></div>
     </div>
@@ -547,7 +547,6 @@
         <output id="hapVal" for="hapRange">70%</output>
         <button class="btn ghost icon-btn" onclick="hapticPreview()"><span class="ja">試す</span><span class="en">Test</span></button>
       </div>
-      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">リストバンド接続時はデバイスが、未接続時はスマホが振動します。</span><span class="en">Buzzes the wristband if connected, otherwise the phone.</span></p>
     </div>
 
     <div class="sec">
@@ -557,11 +556,10 @@
         <button class="btn ghost icon-btn" style="margin-left:auto" onclick="connectBLE()"><span class="ja">接続</span><span class="en">Connect</span></button>
         <button class="btn ghost icon-btn" id="btnBleDisc" onclick="disconnectBLE()" disabled><span class="ja">切断</span><span class="en">Disconnect</span></button>
       </div>
-      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">ここから接続できます（ステップ3まで進む必要はありません）。切断すると他の機器から使えます。</span><span class="en">Connect here without going through to step 3. Disconnecting frees the band for another device.</span></p>
     </div>
 
     <div class="sec">
-      <div class="sec-t"><span class="ja">刺激パターン（研究）</span><span class="en">Stimulus pattern (study)</span></div>
+      <div class="sec-t"><span class="ja">刺激パターン</span><span class="en">Stimulus pattern</span></div>
 
       <div class="sub-t"><span class="ja">刺激の種類</span><span class="en">Channel</span></div>
       <div class="seg" id="segStimCh">
@@ -573,7 +571,7 @@
       <div class="seg" id="segStimPolicy">
         <button data-pref="fixed"    onclick="setPatternPolicy('fixed')"><span class="ja">固定</span><span class="en">Fixed</span></button>
         <button data-pref="random"   onclick="setPatternPolicy('random')"><span class="ja">ランダム</span><span class="en">Random</span></button>
-        <button data-pref="rotating" onclick="setPatternPolicy('rotating')"><span class="ja">巡回</span><span class="en">Rotating</span></button>
+        <button data-pref="rotating" onclick="setPatternPolicy('rotating')"><span class="ja">繰返し</span><span class="en">Repeating</span></button>
       </div>
 
       <div class="sub-t" id="patGridT"></div>
@@ -593,7 +591,7 @@
       <div class="btn-row" style="margin-top:8px">
         <button class="btn ghost" id="btnClearRides" onclick="clearRideHistory()"><span class="ja">履歴を消去</span><span class="en">Clear history</span></button>
       </div>
-      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">追跡を終えるたびに、その乗車をこの端末に記録します（新しい順）。</span><span class="en">Each finished ride is saved on this device (newest first).</span></p>
+      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">終了した乗車履歴は、この端末に新しい順で保存されます。</span><span class="en">Each finished ride is saved on this device (newest first).</span></p>
     </div>
 
     <div class="sec">
@@ -1432,7 +1430,7 @@ async function startTracking(){
   }
   // start foreground service so Android keeps this process alive while backgrounded
   if (IS_NATIVE && _FG) {
-    try { await _FG.startForegroundService({ title:"乗り過ごし防止", body:tt("列車を追跡中…","Tracking your train…"), id:100, smallIcon:"ic_stat_icon_config_sample" }); } catch(_){}
+    try { await _FG.startForegroundService({ title:"乗り過ごし防止", body:tt("列車をトラッキング中…","Tracking your train…"), id:100, smallIcon:"ic_stat_icon_config_sample" }); } catch(_){}
   }
 
   $("setupView").style.display = "none";
@@ -1774,7 +1772,7 @@ function render(t){
       // escalating buzz: once per station, stronger as the train gets closer
       if (!S.alertAcked && physD!==S.lastVibStop){ vibrateForStops(physD); S.lastVibStop=physD; }
     }
-    else { clearAlert(); $("tStatus").textContent=tt("追跡中","Tracking"); $("tStatus").className="badge blue"; }
+    else { clearAlert(); $("tStatus").textContent=tt("トラッキング中","Tracking"); $("tStatus").className="badge blue"; }
   }
 
   // progress bar — fraction of the journey (boarding node -> destination) covered
@@ -2186,7 +2184,7 @@ function setBlePill(on,name){
   for (const id of ["blePill","blePill2"]){
     const p=$(id); if (!p) continue;
     p.classList.toggle("on",on);
-    p.textContent = on ? `🟢 ${name||"connected"}` : "not connected";
+    p.innerHTML = on ? '🟢 <span class="ja">接続済</span><span class="en">Connected</span>' : '<span class="ja">未接続</span><span class="en">Not connected</span>';
   }
   if ($("btnBleDisc")) $("btnBleDisc").disabled = !on;
   if (!on && $("btnBleTest")) $("btnBleTest").disabled = true;
@@ -2476,12 +2474,12 @@ function renderStimUI(){
   }
 
   $("stimHint").innerHTML = isFixed
-    ? '<span class="ja">毎回おなじパターン。慣れ（馴化）が起きるかを見る<b>対照条件</b>です。</span>'
+    ? '<span class="ja">毎回同じパターンで通知します。刺激への馴化が生じやすい条件です。</span>'
     + '<span class="en">Same pattern every alert — the <b>control condition</b>, where habituation should show up.</span>'
     : (pol === "random"
-      ? '<span class="ja">毎回ちがうパターン（直前とは同じにならない）。馴化を防げるかを見る条件です。</span>'
+      ? '<span class="ja">通知ごとに前回とは異なるパターンで通知します。馴化を抑えるための条件です。</span>'
         + '<span class="en">A different pattern each alert, never repeating the previous one — the intervention.</span>'
-      : '<span class="ja">決まった順に巡回します。変化はしますが順序は学習されうる中間条件です。</span>'
+      : '<span class="ja">複数のパターンを決まった順番で繰り返します。</span>'
         + '<span class="en">Cycles in a fixed order — varied, but the sequence itself can be learned.</span>');
 }
 
