@@ -1369,8 +1369,8 @@ function buildDestList(){
     const edge = r.order[terminusNode];
     const dest = tail(termId).replace(/([a-z])([A-Z])/g, "$1 $2"); // NaritaAirportTerminal1 -> Narita Airport Terminal1
     note.innerHTML = tt(
-      `ℹ️ この列車は <b>${dest}</b> まで直通運転しますが、ODPT のデータは <b>${edge.ja}</b> まで。降車駅は ${edge.ja} までしか選べません。`,
-      `ℹ️ Through-service to <b>${dest}</b>, but ODPT data for this line ends at <b>${edge.en}</b> — pick a stop up to there.`);
+      `ⓘ この列車は <b>${dest}</b> まで直通運転しますが、ODPT のデータは <b>${edge.ja}</b> まで。降車駅は ${edge.ja} までしか選べません。`,
+      `ⓘ Through-service to <b>${dest}</b>, but ODPT data for this line ends at <b>${edge.en}</b> — pick a stop up to there.`);
     note.style.display = "block";
   } else {
     note.style.display = "none";
