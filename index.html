@@ -123,7 +123,10 @@
 
   .train-list { display:flex; flex-direction:column; gap:8px; max-height:340px; overflow-y:auto; }
   .train-opt { border:1px solid var(--line); border-radius:var(--r-md); padding:10px 12px; cursor:pointer;
-               display:flex; align-items:center; gap:10px; background:var(--surface2); min-height:52px; }
+               display:flex; align-items:center; gap:10px; background:var(--surface2); min-height:52px;
+               /* the list is a scrolling flex COLUMN; without this, an overflowing list
+                  compresses each row to min-height and the 2-line station name spills out. */
+               flex-shrink:0; }
   .train-opt:hover { border-color:var(--accent); }
   .train-opt.sel  { border-color:var(--accent); background:var(--warn-bg); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
   .train-no { font-weight:700; font-size:13.5px; background:var(--ink); color:var(--bg);
