@@ -621,6 +621,13 @@
       </div>
       <div class="stim-status" id="stimStatus"></div>
       <p class="hint" id="stimHint" style="text-align:left;margin-top:8px"></p>
+
+      <div class="sub-t"><span class="ja">起床後アンケート</span><span class="en">Post-alert survey</span></div>
+      <div class="seg" id="segEval">
+        <button data-pref="on"  onclick="setEvalEnabled('on')"><span class="ja">オン</span><span class="en">On</span></button>
+        <button data-pref="off" onclick="setEvalEnabled('off')"><span class="ja">オフ</span><span class="en">Off</span></button>
+      </div>
+      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">通知後に刺激パターンの評価（気づきやすさ・感じ方・1〜10）を尋ねます。ベースライン週はオフにできます。</span><span class="en">After each alert, asks you to rate the stimulus (noticeability, feel, 1-10). Turn off during the baseline week if you prefer.</span></p>
     </div>
 
     <div class="sec">
@@ -2377,6 +2384,10 @@ const PAT_FIXED_KEY  = "norisugoshi_pattern_fixed";
 const stimChannel    = () => localStorage.getItem(STIM_CH_KEY) || "vibe";
 const patternPolicy  = () => { const v = localStorage.getItem(PAT_POLICY_KEY) || "fixed"; return v === "rotating" ? "repeating" : v; };  // "rotating" was the old id
 const patternFixedId = () => localStorage.getItem(PAT_FIXED_KEY) || "single";
+const EVAL_KEY = "norisugoshi_eval_on";
+// Post-alert subjective survey, default ON. Can be turned off (e.g. the baseline week,
+// so daily rating does not draw attention to the stimulus and blunt habituation).
+const evalEnabled = () => (localStorage.getItem(EVAL_KEY) || "on") !== "off";
 
 // {rotate:int, last:"id", exp:{id:count}} — exposures persist across rides, which they must:
 // habituation is a function of prior exposures, not of calendar time.
@@ -2470,6 +2481,7 @@ function setStimChannel(v){
 }
 function setPatternPolicy(v){ localStorage.setItem(PAT_POLICY_KEY, v); renderStimUI(); }
 function setPatternFixed(id){ localStorage.setItem(PAT_FIXED_KEY, id); renderStimUI(); }
+function setEvalEnabled(v){ localStorage.setItem(EVAL_KEY, v); renderStimUI(); }
 
 function renderStimUI(){
   if (!$("segStimCh")) return;                 // settings sheet not in this build
@@ -2481,6 +2493,8 @@ function renderStimUI(){
   });
   document.querySelectorAll("#segStimPolicy button").forEach(b =>
     b.classList.toggle("on", b.dataset.pref === pol));
+  document.querySelectorAll("#segEval button").forEach(b =>
+    b.classList.toggle("on", b.dataset.pref === (evalEnabled() ? "on" : "off")));
 
   // Under a varying policy the app picks the pattern, so highlighting one would misrepresent
   // what will actually fire. The grid then reads as the pool + its exposure counts instead.
@@ -2642,7 +2656,7 @@ function awakeFeedback(timing){
   S.feedbackAwakeAt = null;
   // then the subjective pattern evaluation — only when a stimulus actually reached the wrist
   // (nothing to rate otherwise). BLINDED: the user is never told which pattern it was.
-  if (fired){ S.evalAwakeAt = at; showEvalBanner(); }
+  if (fired && evalEnabled()){ S.evalAwakeAt = at; showEvalBanner(); }
 }
 
 // ── post-awake pattern evaluation (blinded subjective ratings) ──────────────────
