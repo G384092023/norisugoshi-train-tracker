@@ -260,6 +260,11 @@
   /* awake-timing feedback chips: green = perfect, red = off-timing (early/late) */
   #feedbackBanner .btn.ok     { color:var(--ok);     border-color:color-mix(in srgb, var(--ok) 45%, transparent);     background:var(--ok-bg); }
   #feedbackBanner .btn.danger { color:var(--danger); border-color:color-mix(in srgb, var(--danger) 45%, transparent); background:var(--danger-bg); }
+  .eval-q{ display:flex; flex-direction:column; gap:6px; }
+  .eval-lbl{ font-size:12px; color:var(--ink2); }
+  .eval-opts{ display:flex; gap:6px; flex-wrap:wrap; }
+  .eval-opts .btn.sel{ border-color:var(--accent); background:var(--accent); color:var(--accent-ink); }
+  .eval-scale .btn{ width:34px; padding:6px 0; justify-content:center; }
   @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
 
   .hint { font-size:12px; color:var(--ink2); text-align:center; margin-top:8px; line-height:1.55; }
@@ -473,6 +478,37 @@
           <b>Late</b>: alert sounded <b>after leaving</b> (passing) the notification station
         </div>
       </details>
+    </div>
+
+    <!-- post-awake pattern evaluation — BLINDED: the user never sees which pattern fired; the
+         ratings join to patternId in the CSV for offline analysis. Shown after the timing
+         question whenever a stimulus actually reached the wrist. -->
+    <div class="banner" id="evalBanner" style="border-left:4px solid var(--accent); flex-direction:column; align-items:stretch; gap:10px">
+      <span><span class="ja">今の刺激パターンの評価</span><span class="en">Rate this stimulus</span></span>
+      <div class="eval-q">
+        <span class="eval-lbl"><span class="ja">気づきやすさ</span><span class="en">Noticeable?</span></span>
+        <div class="eval-opts">
+          <button class="btn icon-btn" onclick="setEval('notice','hard',this)"><span class="ja">気づきにくい</span><span class="en">Hard</span></button>
+          <button class="btn icon-btn" onclick="setEval('notice','ok',this)"><span class="ja">普通</span><span class="en">OK</span></button>
+          <button class="btn icon-btn" onclick="setEval('notice','easy',this)"><span class="ja">すぐ気づく</span><span class="en">Easy</span></button>
+        </div>
+      </div>
+      <div class="eval-q">
+        <span class="eval-lbl"><span class="ja">感じ方</span><span class="en">Feel</span></span>
+        <div class="eval-opts">
+          <button class="btn icon-btn" onclick="setEval('comfort','unpleasant',this)"><span class="ja">痛い・不快</span><span class="en">Hurts</span></button>
+          <button class="btn icon-btn" onclick="setEval('comfort','neutral',this)"><span class="ja">普通</span><span class="en">Neutral</span></button>
+          <button class="btn icon-btn" onclick="setEval('comfort','fine',this)"><span class="ja">平気</span><span class="en">Fine</span></button>
+        </div>
+      </div>
+      <div class="eval-q">
+        <span class="eval-lbl"><span class="ja">総合（1〜10）</span><span class="en">Overall (1-10)</span></span>
+        <div class="eval-opts eval-scale" id="evalScoreRow"></div>
+      </div>
+      <div class="btn-row" style="margin-top:2px">
+        <button class="btn primary" onclick="saveEval()"><span class="ja">保存</span><span class="en">Save</span></button>
+        <button class="btn ghost" style="max-width:40%" onclick="skipEval()"><span class="ja">スキップ</span><span class="en">Skip</span></button>
+      </div>
     </div>
 
     <!-- LED departure board — the signature -->
@@ -1612,7 +1648,7 @@ function stopTracking(){
   bleSend(BLE_CLEAR);                  // make sure the device is left off
   if (IS_NATIVE && _FG) { try { _FG.stopForegroundService(); } catch(_){} }
   $("liveDot").style.display="none";
-  ["alertBanner","arriveBanner","warnBanner","timer","feedbackBanner"].forEach(id=>$(id).classList.remove("show"));
+  ["alertBanner","arriveBanner","warnBanner","timer","feedbackBanner","evalBanner"].forEach(id=>$(id).classList.remove("show"));
   S.altOpen=false; updateSwitchBtn(); hideAlts();
   $("trackView").style.display="none";
   $("setupView").style.display="block";
@@ -2598,12 +2634,49 @@ function awakeFeedback(timing){
   // from there would couple the two stores (they're deliberately separate)
   S.alertTiming = timing;
   const log = loadLog();
+  let fired = false;
   for (let i = log.length - 1; i >= 0; i--){
-    if (log[i].awakeAt === at){ log[i].alertTiming = timing; break; }
+    if (log[i].awakeAt === at){ log[i].alertTiming = timing; fired = (log[i].stimDecision === "fired"); break; }
   }
   try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch(_){}
   S.feedbackAwakeAt = null;
+  // then the subjective pattern evaluation — only when a stimulus actually reached the wrist
+  // (nothing to rate otherwise). BLINDED: the user is never told which pattern it was.
+  if (fired){ S.evalAwakeAt = at; showEvalBanner(); }
 }
+
+// ── post-awake pattern evaluation (blinded subjective ratings) ──────────────────
+// Three quick ratings, all optional (a groggy user must not be forced — forced surveys
+// corrupt data). They tag the SAME response record as the timing answer, joined to patternId.
+const _eval = { notice:null, comfort:null, score:null };
+function setEval(dim, val, btn){
+  _eval[dim] = val;
+  [...btn.parentElement.children].forEach(b => b.classList.toggle("sel", b === btn));   // single-select
+}
+function showEvalBanner(){
+  _eval.notice = _eval.comfort = _eval.score = null;
+  $("evalScoreRow").innerHTML = Array.from({length:10}, (_,i)=>i+1)
+    .map(n => `<button class="btn icon-btn" onclick="setEval('score',${n},this)">${n}</button>`).join("");
+  document.querySelectorAll("#evalBanner .eval-opts .btn.sel").forEach(b=>b.classList.remove("sel"));
+  $("evalBanner").classList.add("show");
+}
+function saveEval(){
+  const at = S.evalAwakeAt;
+  if (at){
+    const log = loadLog();
+    for (let i = log.length - 1; i >= 0; i--){
+      if (log[i].awakeAt === at){
+        log[i].evalNotice  = _eval.notice;
+        log[i].evalComfort = _eval.comfort;
+        log[i].evalScore   = _eval.score;
+        break;
+      }
+    }
+    try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch(_){}
+  }
+  skipEval();
+}
+function skipEval(){ $("evalBanner").classList.remove("show"); S.evalAwakeAt = null; }
 
 // ── ride history (user-facing; separate from the response-time research log) ──
 function loadRides(){ try { return JSON.parse(localStorage.getItem(RIDE_KEY) || "[]"); } catch(_){ return []; } }
@@ -2716,7 +2789,8 @@ function exportLog(){
   // NOTE: this is the THIRD semantics epoch for this CSV (see alert-counts-physical-stations
   // for the 2026-07-03 split); rows before 2026-07-23 have none of these fields.
   const cols = ["awakeAt","responseSec","line","train","trainType","dest","alertStopsBefore","stopsAtAlert","alertSource","delaySec","ble","alertTiming",
-                "patternId","patternPolicy","stimChannel","exposures","stimDecision"];
+                "patternId","patternPolicy","stimChannel","exposures","stimDecision",
+                "evalNotice","evalComfort","evalScore"];
   const csv = [cols.join(",")]
     .concat(log.map(r => cols.map(c => { const v = r[c]; return /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : (v ?? ""); }).join(",")))
     .join("\r\n");
