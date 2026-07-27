@@ -828,10 +828,10 @@ async function hapticPreview(){
     if (!bleConnected()) return;
   }
   if (ch === "zap"){
-    if (!confirm(tt(`⚡ 電気刺激を ${s}% で1回テストします。
+    if (!confirm(tt(`電気刺激を ${s}% で1回テストします。
 
 実行しますか？`,
-                    `⚡ This delivers ONE REAL ZAP at ${s}%.
+                    `This delivers ONE REAL ZAP at ${s}%.
 
 Proceed?`))) return;
     await bleSend(s, "zap");
@@ -2009,13 +2009,13 @@ function signal(){
   // 2) system popup notification (native: LocalNotifications; web: Notification API)
   if (IS_NATIVE && _LN){
     _LN.schedule({ notifications:[{
-      title: tt("乗り過ごし防止 ⚡","Norisugoshi ⚡"),
+      title: tt("乗り過ごし防止","Norisugoshi"),
       body:  tt(`まもなく ${stopName}。降りる準備を！`, `Approaching ${stopName}. Get ready to get off!`),
       id: 2,
       smallIcon: "ic_stat_icon_config_sample",
     }]}).catch(()=>{});
   } else if ("Notification" in window && Notification.permission==="granted"){
-    try { new Notification(tt("乗り過ごし防止 ⚡","Norisugoshi ⚡"), { body:tt(`まもなく ${stopName}。降りる準備を！`, `Approaching ${stopName}. Get ready to get off!`), requireInteraction:true }); } catch(_){}
+    try { new Notification(tt("乗り過ごし防止","Norisugoshi"), { body:tt(`まもなく ${stopName}。降りる準備を！`, `Approaching ${stopName}. Get ready to get off!`), requireInteraction:true }); } catch(_){}
   }
   // 3) one-shot native haptic burst on alert fire (escalating per-stop is in render→vibrateForStops)
   if (IS_NATIVE && _HP){ _HP.vibrate({ duration:700 }).catch(()=>{}); }
