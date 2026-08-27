@@ -1,0 +1,8 @@
+{
+  "appId": "com.norisugoshi.app",
+  "appName": "乗り過ごし防止",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  }
+}

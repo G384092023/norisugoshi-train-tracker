@@ -118,6 +118,62 @@ then tackle Phase 2 option 1; fall back to option 2 if background throttling bit
 
 ---
 
+## Phase 2b — background NAP FIRE (train-independent) · the sleep use-case
+
+The web nap mode (`openNap`/`napFire`/`napRefire` in `index.html`) works only while the screen is
+on — a foreground `setTimeout`. To fire reliably after the user is asleep (screen off, app
+backgrounded), the **timer + the fire + the re-fire loop must move into native**, using the same
+`AlarmManager.setAlarmClock` backstop that already survives Doze/EMUI (see memory
+`emui-suppression-findings`).
+
+**Design that keeps ALL study logic in JS — native only owns timing + BLE-in-background:**
+
+1. **JS resolves the plan up front** (while the app is still foreground, at "start nap"):
+   pattern selection (`stimSelectPattern`), the limiter check, strength, channel — then hands
+   native the *resolved* payload via a small Capacitor plugin:
+   ```
+   Nap.schedule({
+     fireAtMs,                 // now + delayMin*60000
+     steps: [...],             // the chosen pattern's encoded steps (bytes) — native just writes them
+     strength, channel,
+     refireMs,                 // 0 = single fire; else re-fire interval (respect the 8s refractory floor)
+     maxFires                  // = zapMaxPerRide (5) — the safety cap
+   })
+   ```
+   This avoids re-implementing pattern selection, the limiter, and exposure counting in Kotlin.
+
+2. **Native `NapScheduler`**: `AlarmManager.setAlarmClock(fireAtMs, …)` → a `BroadcastReceiver`
+   starts a short **foreground service** `NapFireService` (type `connectedDevice`).
+
+3. **`NapFireService.onFire()`**: record `firstFireAtMs = SystemClock.elapsedRealtime()`, write the
+   pattern bytes over the **native** BLE stack (`@capacitor-community/bluetooth-le` holds the
+   connection across backgrounding), and raise a **full-screen wake notification**
+   (`setFullScreenIntent`, high importance, ongoing) whose action is 起きた.
+
+4. **Re-fire loop**: a `Handler.postDelayed` every `refireMs`, re-writing the SAME bytes, until
+   the user acks OR `fireCount == maxFires`. These are rescue repeats — they must NOT count as
+   new exposures (JS handles the single exposure increment, step 6).
+
+5. **Wake ack**: tapping 起きた (from the full-screen notification / a `showWhenLocked` activity)
+   stamps `ackAtMs`; **`responseSec = (ackAtMs − firstFireAtMs)/1000`** — measured from the first
+   fire, exactly like the web path. Stop the loop, clear the notification, `bleSend(CLEAR)`.
+
+6. **Hand back to JS**: the plugin resolves the `Nap.schedule` promise (or fires an event) with
+   `{ responseSec, fireCount, firstFireAtMs, ackAtMs }`. JS then does what it already does on a
+   ride wake: increment the exposure ONCE (`stimRecordExposure(pat.id)`), build the record with
+   `alertSource:"nap"`, blank train columns, `fireCount`, and open the survey wizard.
+
+**Manifest additions (beyond Phase 2):** `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM` (exact
+alarm while asleep), `USE_FULL_SCREEN_INTENT` (the wake screen). Keep the Phase-2 BLE/foreground
+perms.
+
+**Why this split is safe:** the experiment's independent variables and safety limiter stay in the
+audited JS; native gets only "write these bytes at these times and wake the user," which is the
+one thing JS can't do in the background. The web `napFire`/`napRefire` remains the reference
+behavior and the foreground fallback for desktop/quick tests.
+
+---
+
 ## Permissions the user will be asked (Android 12+)
 - **Nearby devices** (Bluetooth scan/connect) — for the haptic device
 - **Notifications** — for the foreground-service notification + alerts

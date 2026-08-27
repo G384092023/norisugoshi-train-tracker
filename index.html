@@ -257,15 +257,53 @@
   .banner.alert{ border-left:4px solid var(--danger); color:var(--danger); animation:shake .4s ease; }
   .banner.ok{ border-left:4px solid var(--ok); color:var(--ok); }
   .banner.warn{ border-left:4px solid var(--accent); color:var(--warn-t); }
-  /* awake-timing feedback chips: green = perfect, red = off-timing (early/late) */
-  #feedbackBanner .btn.ok     { color:var(--ok);     border-color:color-mix(in srgb, var(--ok) 45%, transparent);     background:var(--ok-bg); }
-  #feedbackBanner .btn.danger { color:var(--danger); border-color:color-mix(in srgb, var(--danger) 45%, transparent); background:var(--danger-bg); }
-  .eval-q{ display:flex; flex-direction:column; gap:6px; }
-  .eval-lbl{ font-size:12px; color:var(--ink2); }
-  .eval-opts{ display:flex; gap:6px; flex-wrap:wrap; }
-  .eval-opts .btn.sel{ border-color:var(--accent); background:var(--accent); color:var(--accent-ink); }
-  .eval-scale .btn{ width:34px; padding:6px 0; justify-content:center; }
   @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+
+  /* ── post-alert survey — top-layer modal wizard (one question per screen) ──
+     A groggy user answers without scrolling: full-cover dim + a bottom sheet that
+     shows ONE question at a time, with a progress bar + N/M counter. Sits above the
+     settings sheet (z 40/41) so it wins over everything. Deliberately does NOT close
+     on backdrop tap — a stray half-asleep tap must not discard the survey. */
+  .survey-ovl{ position:fixed; inset:0; background:rgba(5,7,11,.72); z-index:60; display:none;
+               align-items:flex-end; justify-content:center; }
+  .survey-ovl.show{ display:flex; animation:svFade .18s ease; }
+  @keyframes svFade{ from{opacity:0} to{opacity:1} }
+  .survey-modal{ width:100%; max-width:460px; background:var(--surface); border:1px solid var(--line);
+                 border-radius:var(--r-lg) var(--r-lg) 0 0; box-shadow:0 -14px 44px rgba(0,0,0,.45);
+                 padding:18px 18px calc(20px + env(safe-area-inset-bottom));
+                 animation:svUp .24s cubic-bezier(.2,.8,.2,1); }
+  @keyframes svUp{ from{transform:translateY(24px)} to{transform:translateY(0)} }
+  .survey-top{ display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+  .survey-dots{ display:flex; gap:5px; flex:1; }
+  .survey-dots i{ height:5px; flex:1; border-radius:3px; background:var(--line); transition:background .2s; }
+  .survey-dots i.done{ background:color-mix(in srgb, var(--accent) 50%, transparent); }
+  .survey-dots i.on{ background:var(--accent); }
+  .survey-count{ font-size:12px; font-weight:800; color:var(--ink2); font-variant-numeric:tabular-nums; flex-shrink:0; letter-spacing:.04em; }
+  .survey-close{ width:30px; height:30px; border-radius:8px; border:1px solid var(--line); background:var(--surface2);
+                 color:var(--ink2); font-size:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; }
+  .survey-close:active{ transform:scale(.94); }
+  .survey-title{ font-size:20px; font-weight:750; line-height:1.32; margin-bottom:7px; }
+  .survey-title .ja, .survey-title .en{ display:block; }
+  .survey-expl{ font-size:13px; color:var(--ink2); line-height:1.6; margin-bottom:20px; min-height:1.6em; }
+  .survey-opts{ display:flex; flex-direction:column; gap:10px; }
+  .survey-opt{ width:100%; text-align:left; border:1.5px solid var(--line); border-radius:var(--r-md);
+               background:var(--surface2); color:var(--ink); padding:14px 16px; font-family:inherit; cursor:pointer;
+               display:flex; flex-direction:column; gap:2px; min-height:58px; justify-content:center;
+               transition:border-color .15s, background .15s, box-shadow .15s, transform .08s; }
+  .survey-opt:active{ transform:scale(.99); }
+  .survey-opt .so-main{ font-size:16px; font-weight:700; }
+  .survey-opt .so-sub{ font-size:12px; color:var(--ink2); font-weight:500; }
+  .survey-opt.sel{ border-color:var(--accent); background:var(--warn-bg); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 32%, transparent); }
+  .survey-opt.ok.sel{ border-color:var(--ok); background:var(--ok-bg); box-shadow:0 0 0 2px color-mix(in srgb, var(--ok) 32%, transparent); }
+  .survey-opt.warn.sel{ border-color:var(--danger); background:var(--danger-bg); box-shadow:0 0 0 2px color-mix(in srgb, var(--danger) 32%, transparent); }
+  /* 1-10 overall: number pad grid + end labels */
+  .survey-scale{ display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
+  .survey-scale .survey-opt{ min-height:52px; align-items:center; justify-content:center; text-align:center;
+                             font-size:18px; font-weight:750; padding:0; }
+  .survey-ends{ display:flex; justify-content:space-between; font-size:11px; color:var(--ink2); margin-top:10px; }
+  .survey-foot{ display:flex; align-items:center; gap:10px; margin-top:20px; }
+  .survey-back{ visibility:hidden; }
+  .survey-skip{ margin-left:auto; }
 
   .hint { font-size:12px; color:var(--ink2); text-align:center; margin-top:8px; line-height:1.55; }
   .err  { font-size:13px; color:var(--danger); background:var(--danger-bg); border:1px solid color-mix(in srgb, var(--danger) 30%, transparent);
@@ -429,7 +467,18 @@
       </details>
     </div>
 
+    <!-- session context — real ride vs a nap/bedtime rehearsal. Set once here; every alert this
+         session inherits it, and the CSV can then separate train data from test data. -->
+    <div class="field" style="margin-top:6px; margin-bottom:14px">
+      <label class="fld"><span class="ja">利用シーン（データ記録用）</span><span class="en">Session type (for the data log)</span></label>
+      <div class="seg" id="segContext">
+        <button data-pref="train" onclick="setSessionContext('train')"><span class="ja">実際の乗車</span><span class="en">Real train</span></button>
+        <button data-pref="test"  onclick="setSessionContext('test')"><span class="ja">仮眠・練習</span><span class="en">Nap / test</span></button>
+      </div>
+    </div>
+
     <button class="btn primary" id="btnStart" onclick="startTracking()" disabled><span class="ja">開始</span><span class="en">Start tracking</span></button>
+    <button class="btn ghost mt" onclick="openNap()"><span class="ja">仮眠モード（列車なし）</span><span class="en">Nap mode (no train)</span></button>
 
     <p class="hint"><span class="ja">データ: ODPT 公共交通オープンデータ · 更新 30–60秒</span><span class="en">Data: ODPT Open Data · updates every 30–60s</span></p>
   </div>
@@ -455,61 +504,9 @@
       <div class="tr" id="timerRes"></div>
     </div>
 
-    <!-- post-awake feedback — 通知のタイミングは適切だったか -->
-    <div class="banner" id="feedbackBanner" style="border-left:4px solid var(--accent); flex-direction:column; align-items:stretch; gap:8px">
-      <div style="display:flex; align-items:center; gap:10px">
-        <span style="flex:1; min-width:0"><span class="ja">通知のタイミングは？</span><span class="en">Alert timing?</span></span>
-        <div style="display:flex; gap:6px; margin-left:auto; flex:none">
-          <button class="btn danger icon-btn" onclick="awakeFeedback('early')"><span class="ja">早い</span><span class="en">Early</span></button>
-          <button class="btn ok icon-btn" onclick="awakeFeedback('perfect')"><span class="ja">ちょうど</span><span class="en">Perfect</span></button>
-          <button class="btn danger icon-btn" onclick="awakeFeedback('late')"><span class="ja">遅い</span><span class="en">Late</span></button>
-        </div>
-      </div>
-      <details class="info" style="margin:0">
-        <summary></summary>
-        <div class="body ja">
-          <b>早い</b>：通知予定の駅に<b>到着する前</b>に通知が鳴った<br>
-          <b>ちょうど</b>：通知予定の駅に<b>到着した後</b>に通知が鳴った<br>
-          <b>遅い</b>：通知予定の駅を<b>発車した（通り過ぎた）後</b>に通知が鳴った
-        </div>
-        <div class="body en">
-          <b>Early</b>: alert sounded <b>before reaching</b> the notification station<br>
-          <b>Perfect</b>: alert sounded <b>after reaching</b> the notification station<br>
-          <b>Late</b>: alert sounded <b>after leaving</b> (passing) the notification station
-        </div>
-      </details>
-    </div>
+    <!-- post-awake timing + stimulus evaluation now live in the top-layer survey wizard
+         (#surveyOvl, near the settings sheet). openSurvey() drives it after 「起きた！」. -->
 
-    <!-- post-awake pattern evaluation — BLINDED: the user never sees which pattern fired; the
-         ratings join to patternId in the CSV for offline analysis. Shown after the timing
-         question whenever a stimulus actually reached the wrist. -->
-    <div class="banner" id="evalBanner" style="border-left:4px solid var(--accent); flex-direction:column; align-items:stretch; gap:10px">
-      <span><span class="ja">今の刺激パターンの評価</span><span class="en">Rate this stimulus</span></span>
-      <div class="eval-q">
-        <span class="eval-lbl"><span class="ja">気づきやすさ</span><span class="en">Noticeable?</span></span>
-        <div class="eval-opts">
-          <button class="btn icon-btn" onclick="setEval('notice','hard',this)"><span class="ja">気づきにくい</span><span class="en">Hard</span></button>
-          <button class="btn icon-btn" onclick="setEval('notice','ok',this)"><span class="ja">普通</span><span class="en">OK</span></button>
-          <button class="btn icon-btn" onclick="setEval('notice','easy',this)"><span class="ja">すぐ気づく</span><span class="en">Easy</span></button>
-        </div>
-      </div>
-      <div class="eval-q">
-        <span class="eval-lbl"><span class="ja">感じ方</span><span class="en">Feel</span></span>
-        <div class="eval-opts">
-          <button class="btn icon-btn" onclick="setEval('comfort','unpleasant',this)"><span class="ja">痛い・不快</span><span class="en">Hurts</span></button>
-          <button class="btn icon-btn" onclick="setEval('comfort','neutral',this)"><span class="ja">普通</span><span class="en">Neutral</span></button>
-          <button class="btn icon-btn" onclick="setEval('comfort','fine',this)"><span class="ja">平気</span><span class="en">Fine</span></button>
-        </div>
-      </div>
-      <div class="eval-q">
-        <span class="eval-lbl"><span class="ja">総合（1〜10）</span><span class="en">Overall (1-10)</span></span>
-        <div class="eval-opts eval-scale" id="evalScoreRow"></div>
-      </div>
-      <div class="btn-row" style="margin-top:2px">
-        <button class="btn primary" onclick="saveEval()"><span class="ja">保存</span><span class="en">Save</span></button>
-        <button class="btn ghost" style="max-width:40%" onclick="skipEval()"><span class="ja">スキップ</span><span class="en">Skip</span></button>
-      </div>
-    </div>
 
     <!-- LED departure board — the signature -->
     <div class="board">
@@ -551,6 +548,83 @@
     <div class="btn-row mt">
       <button class="btn ghost" onclick="poll()" id="btnRefresh">↻ <span class="ja">更新</span><span class="en">Refresh</span></button>
       <button class="btn danger" onclick="stopTracking()">✕ <span class="ja">停止</span><span class="en">Stop</span></button>
+    </div>
+  </div>
+
+  <!-- ===================== NAP / SLEEP MODE (train-independent) ===================== -->
+  <div id="napView" style="display:none">
+    <div class="card">
+      <div class="step-title lk" style="margin-bottom:.5rem"><span class="ja">仮眠モード</span><span class="en">Nap / sleep mode</span></div>
+      <p class="hint" style="text-align:left;margin:.1rem 0 .8rem"><span class="ja">列車とは無関係に、眠りについてから設定時間後に刺激を発火し、反応時間を記録します。</span><span class="en">Independent of any train — fires the stimulus a set time after you settle to sleep, then logs your response time.</span></p>
+
+      <!-- idle: set delay + start -->
+      <div id="napIdle">
+        <div class="field" style="max-width:70%">
+          <label class="fld" for="napDelay"><span class="ja">発火まで（分）</span><span class="en">Fire after (minutes)</span></label>
+          <input id="napDelay" type="number" min="0" max="180" step="1" value="45" inputmode="numeric">
+        </div>
+        <p class="hint" style="text-align:left;margin:.3rem 0 .8rem"><span class="ja">深い睡眠は入眠の約20〜90分後。夜間はより深く眠れます。</span><span class="en">Deep sleep is ~20–90 min after onset; overnight naps reach it more reliably.</span></p>
+
+        <div class="field" style="max-width:70%">
+          <label class="fld" for="napRefire"><span class="ja">無反応なら再発火（秒 / 0＝しない）</span><span class="en">Re-fire if no response (sec / 0 = off)</span></label>
+          <input id="napRefire" type="number" min="0" max="120" step="5" value="15" inputmode="numeric">
+        </div>
+        <p class="hint" style="text-align:left;margin:.3rem 0 .8rem"><span class="ja">起きるまで同じ刺激を繰り返します。反応時間は最初の発火から測定。安全上、1回のセッションで最大5回まで。</span><span class="en">Repeats the same stimulus until you wake. Response time is measured from the first fire. Capped at 5 fires per session for safety.</span></p>
+
+        <div class="field" style="margin-bottom:12px">
+          <label class="fld"><span class="ja">利用シーン（データ記録用）</span><span class="en">Session type (for the data log)</span></label>
+          <div class="seg" id="segContextNap">
+            <button data-pref="train" onclick="setSessionContext('train')"><span class="ja">実際の乗車</span><span class="en">Real train</span></button>
+            <button data-pref="test"  onclick="setSessionContext('test')"><span class="ja">仮眠・練習</span><span class="en">Nap / test</span></button>
+          </div>
+        </div>
+
+        <div class="ble-line">
+          <span><span class="ja">リストバンド (BLE)</span><span class="en">Wristband (BLE)</span></span>
+          <span class="ble-pill" id="blePillNap"><span class="ja">未接続</span><span class="en">Not connected</span></span>
+          <button class="btn ghost icon-btn" style="margin-left:auto" onclick="connectBLE()"><span class="ja">接続</span><span class="en">Connect</span></button>
+        </div>
+        <p class="hint" id="napPlan" style="text-align:left;margin:.5rem 0 .9rem"></p>
+
+        <button class="btn primary" onclick="startNap()"><span class="ja">仮眠を開始</span><span class="en">Start nap</span></button>
+        <button class="btn ghost mt" onclick="closeNap()"><span class="ja">戻る</span><span class="en">Back</span></button>
+      </div>
+
+      <!-- armed: counting down to the fire -->
+      <div id="napArmed" style="display:none; text-align:center">
+        <div class="tl" style="margin-top:.4rem"><span class="ja">発火まで</span><span class="en">Fires in</span></div>
+        <div class="tv" id="napCountdown" style="font-size:2.4rem">--:--</div>
+        <p class="hint"><span class="ja">画面を開いたまま、端末を近くに置いてください。バックグラウンドでは発火しない場合があります。</span><span class="en">Keep this screen open and the phone nearby. Firing may not run reliably in the background.</span></p>
+        <button class="btn danger mt" onclick="cancelNap()"><span class="ja">中止</span><span class="en">Cancel</span></button>
+      </div>
+
+      <!-- fired: waiting for 起きた -->
+      <div id="napFired" style="display:none; text-align:center">
+        <div class="tl"><span class="ja">反応時間</span><span class="en">Response time</span></div>
+        <div class="tv" id="napTimerVal" style="font-size:2.4rem">0.0s</div>
+        <button class="btn primary mt" onclick="napWake()"><span class="ja">起きた！</span><span class="en">I'm awake</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== POST-ALERT SURVEY (modal wizard) ===================== -->
+  <!-- One question per screen, top layer, no scroll. Built dynamically by openSurvey():
+       timing + sleep state always; noticeability/feel/overall only when a stimulus fired
+       and the survey is enabled. Every answer optional; tags the response-log record. -->
+  <div class="survey-ovl" id="surveyOvl">
+    <div class="survey-modal" role="dialog" aria-modal="true" aria-label="起床後アンケート Post-alert survey">
+      <div class="survey-top">
+        <div class="survey-dots" id="surveyDots"></div>
+        <span class="survey-count" id="surveyCount"></span>
+        <button class="survey-close" onclick="surveyFinish()" aria-label="閉じる Close">✕</button>
+      </div>
+      <div class="survey-title" id="surveyTitle"></div>
+      <div class="survey-expl" id="surveyExpl"></div>
+      <div class="survey-opts" id="surveyBody"></div>
+      <div class="survey-foot">
+        <button class="btn ghost icon-btn survey-back" id="surveyBack" onclick="surveyBack()"><span class="ja">戻る</span><span class="en">Back</span></button>
+        <button class="btn ghost icon-btn survey-skip" onclick="surveySkip()"><span class="ja">スキップ</span><span class="en">Skip</span></button>
+      </div>
     </div>
   </div>
 
@@ -627,7 +701,7 @@
         <button data-pref="on"  onclick="setEvalEnabled('on')"><span class="ja">オン</span><span class="en">On</span></button>
         <button data-pref="off" onclick="setEvalEnabled('off')"><span class="ja">オフ</span><span class="en">Off</span></button>
       </div>
-      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">通知後に刺激パターンの評価（気づきやすさ・感じ方・1〜10）を尋ねます。ベースライン週はオフにできます。</span><span class="en">After each alert, asks you to rate the stimulus (noticeability, feel, 1-10). Turn off during the baseline week if you prefer.</span></p>
+      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">通知後アンケートの刺激評価パート（気づきやすさ・感じ方・1〜10）のオン/オフ。タイミングと眠りの深さは常に尋ねます。ベースライン週はオフにできます。</span><span class="en">Toggles the stimulus-rating part of the post-alert survey (noticeability, feel, 1-10). Timing and sleep depth are always asked. Turn off during the baseline week if you prefer.</span></p>
     </div>
 
     <div class="sec">
@@ -647,6 +721,12 @@
         <button class="btn ghost" style="max-width:38%" onclick="clearLog()"><span class="ja">消去</span><span class="en">Clear</span></button>
       </div>
       <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">「起きた！」のタップごとに反応時間をこの端末に記録します。</span><span class="en">Each “I’m awake” tap logs your response time on this device.</span></p>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t"><span class="ja">新しい被験者</span><span class="en">New respondent</span></div>
+      <button class="btn danger" onclick="resetStudy()"><span class="ja">実験状態をリセット</span><span class="en">Reset study state</span></button>
+      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">記録・提示回数（exposures）・乗車履歴を消去し、方式を「固定／single」に戻します。刺激チャンネルはそのまま残ります。<b>先にCSVを書き出してから</b>実行してください。</span><span class="en">Clears the log, exposure counts and ride history, and returns the policy to Fixed / single. The stimulus channel is left unchanged. <b>Export the CSV first.</b></span></p>
     </div>
 
     <div class="sec">
@@ -670,7 +750,12 @@
 
 <script>
 // ============================================================ CONFIG
-const API = "";                       // same origin as the proxy
+// Web: same origin as the bundled proxy (server.js). Native (Capacitor) has no same-origin
+// proxy, so point at the deployed Render proxy — it sends Access-Control-Allow-Origin:* so the
+// APK can call it. (IS_NATIVE is declared later, so the platform check is inlined here.)
+const API = (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())
+  ? "https://norisugoshi-train-tracker.onrender.com"
+  : "";
 const POLL_MS = 25000;                // auto refresh every 25s
 const SESSION_MAX_MS = 3*60*60*1000;  // hard 3h auto-stop (parity with the native service)
 // BLE — the app can drive more than one kind of wrist device. We AUTO-DETECT which one
@@ -759,6 +844,9 @@ const S = {
   alertTiming: null,     // most recent 早すぎ/ちょうど/遅い rating this ride (for the history row)
   // response-time experiment
   t0: null, timerId: null, times: [], alertCtx: null,
+  // nap / sleep mode (train-independent stimulus)
+  napArmed: false, napFireAt: 0, napFireTimeout: null, napCountdownId: null,
+  napRefireId: null, napFireCount: 0, napPat: null,
 };
 const LOG_KEY = "norisugoshi_response_log";   // persisted experiment records (localStorage)
 const RIDE_KEY = "norisugoshi_ride_history";  // user-facing ride history (separate from the research CSV)
@@ -1050,7 +1138,11 @@ async function getJSON(path, tries = 5){
 const IS_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 
 // ── Phase 2 native plugin handles (null on web) ──────────────────────────────
-let _BLE = null, _LN = null, _HP = null, _FG = null;
+// _NT is the OPTIONAL custom native plugin (Phase 2 background poll loop + Phase 2b nap fire).
+// It stays null until that Kotlin plugin exists; every `IS_NATIVE && _NT` branch then falls
+// through to the standard _BLE path. Declaring it here avoids a ReferenceError on native, since
+// those branches read `_NT` before it would otherwise be defined.
+let _BLE = null, _LN = null, _HP = null, _FG = null, _NT = null;
 function initPlugins(){
   if (!IS_NATIVE) return;
   const P = window.Capacitor?.Plugins || {};
@@ -1058,6 +1150,7 @@ function initPlugins(){
   _LN  = P.LocalNotifications         || null;  // @capacitor/local-notifications
   _HP  = P.Haptics                    || null;  // @capacitor/haptics
   _FG  = P.AndroidForegroundService   || null;  // @capawesome-team/capacitor-android-foreground-service
+  _NT  = P.NorisugoshiNative          || null;  // custom plugin — null until Phase 2/2b Kotlin is built
 }
 window.addEventListener("load", initPlugins);
 
@@ -1071,6 +1164,7 @@ function onReady(){
   $("hapVal").textContent = hapticStrength() + "%";
   setBlePill(bleConnected(), S.ble.kind && DEVICES[S.ble.kind] ? DEVICES[S.ble.kind].label : "");
   renderStimUI();                                      // study controls + exposure counts
+  syncContextSeg();                                    // real-train / nap-test toggle on the setup screen
 }
 // follow the device locale live while the preference is "auto"
 window.addEventListener("languagechange", () => { if (langPref() === "auto") applyLang(); });
@@ -1655,7 +1749,8 @@ function stopTracking(){
   bleSend(BLE_CLEAR);                  // make sure the device is left off
   if (IS_NATIVE && _FG) { try { _FG.stopForegroundService(); } catch(_){} }
   $("liveDot").style.display="none";
-  ["alertBanner","arriveBanner","warnBanner","timer","feedbackBanner","evalBanner"].forEach(id=>$(id).classList.remove("show"));
+  ["alertBanner","arriveBanner","warnBanner","timer"].forEach(id=>$(id).classList.remove("show"));
+  $("surveyOvl").classList.remove("show");   // dismiss the survey wizard if a new session starts mid-survey
   S.altOpen=false; updateSwitchBtn(); hideAlts();
   $("trackView").style.display="none";
   $("setupView").style.display="block";
@@ -1994,6 +2089,7 @@ function ensureSignaled(stops){
     alertSource: "js",          // fired by the foreground JS render loop (native adds "poll"/"backstop")
     delaySec: (S.train && S.train["odpt:delay"]) || 0,
     ble: bleConnected(),   // native uses deviceId, web uses cached GATT characteristics
+    context: sessionContext(),   // train | test — set once per session, for offline analysis
   };
   signal();                     // notification + beep + BLE
   startTimer();
@@ -2227,7 +2323,7 @@ Checklist:
 function setBlePill(on,name){
   // Two pills now: the one in step 3 and the one in settings. Both must track the same state,
   // or the settings screen will claim "not connected" for a band that is in fact connected.
-  for (const id of ["blePill","blePill2"]){
+  for (const id of ["blePill","blePill2","blePillNap"]){
     const p=$(id); if (!p) continue;
     p.classList.toggle("on",on);
     p.innerHTML = on ? '🟢 <span class="ja">接続済</span><span class="en">Connected</span>' : '<span class="ja">未接続</span><span class="en">Not connected</span>';
@@ -2365,6 +2461,10 @@ const PATTERNS = [
   { id:"longshort",  ja:"長短", en:"Long-short", steps:[{c:4,i:100,gap:750},{c:1,i:100,gap:0}] },
 ];
 const patternById   = (id) => PATTERNS.find(p => p.id === id) || PATTERNS[0];
+// Pool for the VARYING policies (random / repeating). `single` (one pulse) is EXCLUDED on purpose:
+// it is the BASELINE stimulus and belongs only to `fixed`. Injecting a trivial one-pulse alert into
+// the anti-habituation conditions would weaken exactly what they are meant to test.
+const VARYING_PATTERNS = PATTERNS.filter(p => p.id !== "single");
 const patternPulses = (p)  => p.steps.reduce((n,s) => n + s.c, 0);
 const patternPeak   = (p)  => p.steps.reduce((m,s) => Math.max(m, s.i), 0);
 // ⚠️ THE TWO CHANNELS RUN AT DIFFERENT SPEEDS — this must stay channel-aware.
@@ -2407,14 +2507,15 @@ function stimSelectPattern(policy, fixedId){
   if (policy === "fixed") return patternById(fixedId);
   const s = patState();
   if (policy === "repeating"){
-    const i = (s.rotate || 0) % PATTERNS.length;
-    s.rotate = (i + 1) % PATTERNS.length; patSave(s);
-    return PATTERNS[i];
+    const i = (s.rotate || 0) % VARYING_PATTERNS.length;
+    s.rotate = (i + 1) % VARYING_PATTERNS.length; patSave(s);
+    return VARYING_PATTERNS[i];
   }
   // random, excluding the previous pattern — a repeat would be indistinguishable from the
   // fixed condition for that exposure, which would quietly contaminate the comparison.
-  const pool = PATTERNS.length > 1 ? PATTERNS.filter(p => p.id !== s.last) : PATTERNS;
-  return pool[Math.floor(Math.random() * pool.length)];
+  const pool = VARYING_PATTERNS.filter(p => p.id !== s.last);
+  const usable = pool.length ? pool : VARYING_PATTERNS;   // guard if last was the only varying pattern
+  return usable[Math.floor(Math.random() * usable.length)];
 }
 
 // One step of a pattern: `count` pulses at `intensity`, EXECUTE set, COMMIT clear.
@@ -2483,6 +2584,15 @@ function setPatternPolicy(v){ localStorage.setItem(PAT_POLICY_KEY, v); renderSti
 function setPatternFixed(id){ localStorage.setItem(PAT_FIXED_KEY, id); renderStimUI(); }
 function setEvalEnabled(v){ localStorage.setItem(EVAL_KEY, v); renderStimUI(); }
 
+// Session context — real train vs a nap/bedtime rehearsal. Set ONCE per session on the
+// setup screen; every alert this session inherits it (written into S.alertCtx.context).
+// Kept OUT of the survey so a groggy user never has to answer it, and so train and test
+// rides can be analysed apart (motion, ambient noise and true sleep inertia all differ).
+const CTX_KEY = "norisugoshi_session_ctx";
+const sessionContext = () => (localStorage.getItem(CTX_KEY) === "test") ? "test" : "train";
+function setSessionContext(v){ localStorage.setItem(CTX_KEY, v); syncContextSeg(); }
+function syncContextSeg(){ document.querySelectorAll("#segContext button").forEach(b => b.classList.toggle("on", b.dataset.pref === sessionContext())); }
+
 function renderStimUI(){
   if (!$("segStimCh")) return;                 // settings sheet not in this build
   const ch = stimChannel(), pol = patternPolicy(), fixed = patternFixedId();
@@ -2503,7 +2613,7 @@ function renderStimUI(){
     ? '<span class="ja">固定パターン</span><span class="en">Fixed pattern</span>'
     : '<span class="ja">パターン一覧・提示回数</span><span class="en">Pattern pool &amp; exposures</span>';
 
-  $("patGrid").innerHTML = PATTERNS.map(p => {
+  $("patGrid").innerHTML = (isFixed ? PATTERNS : VARYING_PATTERNS).map(p => {
     const n = stimExposures(p.id);
     const on = isFixed && p.id === fixed ? " on" : "";
     return `<button class="pat-chip${on}" onclick="setPatternFixed('${p.id}')">`
@@ -2633,64 +2743,250 @@ function stopTimer(atMs){
   $("timerRes").style.display="none";
   updateExportBtn();
   S.t0=null;
-  // post-awake feedback: ask whether the alert timing felt right, tag the record
-  S.feedbackAwakeAt = rec.awakeAt;
-  $("feedbackBanner").classList.add("show");
+  // post-awake survey wizard: timing + sleep state (+ stimulus rating if it fired)
+  openSurvey(rec.awakeAt);
 }
 
-// Tag the just-saved response record with the user's timing judgement
-// ('early' = before reaching the alert station · 'perfect' = after reaching it ·
-// 'late' = after departing it), then dismiss the prompt.
-function awakeFeedback(timing){
-  $("feedbackBanner").classList.remove("show");
-  const at = S.feedbackAwakeAt; if (!at) return;
-  // keep a copy on the ride too: history summarises timing, and reading the research log
-  // from there would couple the two stores (they're deliberately separate)
-  S.alertTiming = timing;
+// ============================================================ NAP / SLEEP MODE
+// Train-independent stimulus. Arm a timer, fire once after a delay (aim it into the deep-sleep
+// window), then reuse the SAME response timer + record + survey path as a train alert. The row
+// carries alertSource:"nap" with empty train columns; responseSec, the exposure counter, the
+// survey and the CSV are all identical, so nap trials land in one dataset with ride trials.
+// CAVEAT: the fire is a foreground setTimeout — reliable while this screen is open (a wake lock
+// is held), but the OS may throttle it if the app is backgrounded. Truly-background firing would
+// need the native scheduler that already drives train tracking (see native-background memory).
+function openNap(){
+  $("setupView").style.display="none";
+  $("trackView").style.display="none";
+  $("napView").style.display="block";
+  napShow("idle");
+  syncContextSeg();                      // reflect the current test/train choice on the nap toggle
+  setBlePill(bleConnected(), S.ble.kind && DEVICES[S.ble.kind] ? DEVICES[S.ble.kind].label : "");
+  renderNapPlan();
+}
+function closeNap(){
+  if (S.napArmed){ cancelNap(true); return; }   // never leave an armed timer behind
+  $("napView").style.display="none";
+  $("setupView").style.display="block";
+}
+function napShow(state){
+  $("napIdle").style.display  = state==="idle"  ? "block" : "none";
+  $("napArmed").style.display = state==="armed" ? "block" : "none";
+  $("napFired").style.display = state==="fired" ? "block" : "none";
+}
+function renderNapPlan(){
+  const el=$("napPlan"); if(!el) return;
+  const pol=patternPolicy(), fx=patternFixedId(), ch=stimChannel();
+  const pat = pol==="fixed" ? fx : tt("方式にしたがって選択","chosen by policy");
+  el.innerHTML = tt(`発火する刺激: ${ch} / ${pol}（${pat}）`, `Will fire: ${ch} / ${pol} (${pat})`);
+}
+function startNap(){
+  const mins = Math.max(0, Math.min(180, Math.round(+($("napDelay").value) || 0)));
+  S.napArmed = true; S.napFireAt = Date.now() + mins*60000;
+  keepAwake();                           // hold the screen on so the timer isn't throttled
+  napShow("armed"); napTick();
+  clearInterval(S.napCountdownId); S.napCountdownId = setInterval(napTick, 1000);
+  clearTimeout(S.napFireTimeout);        S.napFireTimeout = setTimeout(napFire, mins*60000);
+}
+function napTick(){
+  const s = Math.max(0, Math.round((S.napFireAt - Date.now())/1000));
+  $("napCountdown").textContent = String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
+}
+function cancelNap(silent){
+  clearTimeout(S.napFireTimeout); clearInterval(S.napCountdownId); clearInterval(S.timerId); clearInterval(S.napRefireId);
+  S.napRefireId=null; S.napArmed=false; S.t0=null;
+  bleSend(BLE_CLEAR); releaseAwake();
+  if (silent===true){ $("napView").style.display="none"; $("setupView").style.display="block"; return; }
+  napShow("idle");
+}
+function napFire(){
+  clearInterval(S.napCountdownId);
+  S.napArmed=false; S.alertFired=true; S.alertAcked=false;
+  // train-free context — empty train columns keep the CSV shape identical to a ride row
+  S.alertCtx = {
+    line:"", train:"", trainType:"", dest:"", alertStopsBefore:"", stopsAtAlert:"",
+    alertSource:"nap", delaySec:0, ble:bleConnected(), context: sessionContext(),
+  };
+  const pat = stimSelectPattern(patternPolicy(), patternFixedId());
+  S.napPat = pat; S.napFireCount = 1;
+  S.alertCtx.patternId=pat.id; S.alertCtx.patternPolicy=patternPolicy();
+  S.alertCtx.stimChannel=stimChannel(); S.alertCtx.exposures=stimExposures(pat.id);   // BEFORE this delivery
+  S.alertCtx.fireCount = 1;              // how many times the stimulus fired this wake (1 = woke to first fire)
+  blePlayPattern(pat, hapticStrength(), stimChannel()).then(ok => {   // first fire DOES count as the exposure
+    if (S.alertCtx) S.alertCtx.stimDecision = ok ? "fired" : stimLastDecision;
+  });
+  napCues();
+  // response timer, drawn in the nap view's own display (the train timer card is hidden)
+  S.t0 = Date.now();
+  napShow("fired"); $("napTimerVal").textContent="0.0s";
+  clearInterval(S.timerId);
+  S.timerId = setInterval(()=>{ $("napTimerVal").textContent = ((Date.now()-S.t0)/1000).toFixed(1)+"s"; }, 100);
+  // escalation: re-fire the SAME pattern until 起きた, on the chosen interval (0 = single fire only).
+  // Re-fires are rescue repeats, NOT new exposures (countExposure:false) so the habituation covariate
+  // stays clean; responseSec is still measured from this first fire. The safety limiter's per-ride cap
+  // (5) self-stops escalation, and a suppressed re-fire ends the loop.
+  const refireSec = Math.max(0, Math.min(120, Math.round(+($("napRefire") && $("napRefire").value) || 0)));
+  clearInterval(S.napRefireId); S.napRefireId = null;
+  if (refireSec > 0){
+    S.napRefireId = setInterval(napRefire, refireSec * 1000);
+  }
+}
+// One escalation re-fire: same pattern, no exposure increment, backup cues. Stops when the sleeper
+// acks, when the limiter refuses (budget spent), or defensively if state was torn down.
+function napRefire(){
+  if (S.alertAcked || !S.t0 || !S.napPat){ clearInterval(S.napRefireId); S.napRefireId=null; return; }
+  blePlayPattern(S.napPat, hapticStrength(), stimChannel(), { countExposure:false }).then(ok => {
+    if (!ok){ clearInterval(S.napRefireId); S.napRefireId=null; }   // suppressed (per-ride cap / refractory) → stop
+  });
+  S.napFireCount += 1;
+  if (S.alertCtx) S.alertCtx.fireCount = S.napFireCount;
+  napCues();
+}
+// The non-BLE backup wake channels (phone buzz + beep + notification), shared by fire and re-fire.
+function napCues(){
+  if (IS_NATIVE && _HP){ _HP.vibrate({ duration:700 }).catch(()=>{}); }
+  else if (navigator.vibrate){ navigator.vibrate([600,150,600,150,700]); }
+  if (IS_NATIVE && _LN){ _LN.schedule({ notifications:[{ title:tt("仮眠モード","Nap mode"), body:tt("起きる時間です！","Time to wake up!"), id:3, smallIcon:"ic_stat_icon_config_sample" }]}).catch(()=>{}); }
+  else if ("Notification" in window && Notification.permission==="granted"){ try { new Notification(tt("仮眠モード","Nap mode"), { body:tt("起きる時間です！","Time to wake up!"), requireInteraction:true }); } catch(_){} }
+  beep();
+}
+function napWake(){
+  clearInterval(S.napRefireId); S.napRefireId=null;   // stop escalation the instant they wake
+  stopTimer();                           // records the row (responseSec + fireCount + alertCtx) and opens the survey
+  releaseAwake();
+  napShow("idle"); renderNapPlan();
+}
+
+// ── post-awake survey wizard (top-layer modal, one question per screen) ──────────
+// Replaces the old inline timing + eval banners. A groggy user answers without
+// scrolling, and each question gets its own clean explanation + an N/M counter.
+// Questions are built dynamically:
+//   1. alert timing            (always)
+//   2. sleep state             (always) — deep/light/didn't sleep/awake-on-phone
+//   3. noticeability  ┐
+//   4. feel            } only when a stimulus actually reached the wrist AND the
+//   5. overall 1-10   ┘  post-alert survey is enabled (baseline week can turn it off).
+// EVERY answer is optional (forcing a groggy participant corrupts data) and each tags
+// the SAME response-log record, keyed by awakeAt, joined to patternId offline. The
+// stimulus ratings stay BLINDED — the user is never told which pattern fired.
+// Answers persist after every tap, so a mid-survey kill still keeps what was answered.
+const SURVEY = { at:null, qs:[], i:0, ans:{} };
+
+function surveyBuild(fired){
+  const qs = [];
+  qs.push({ key:"alertTiming",
+    ja:"通知のタイミングは？", en:"Alert timing?",
+    explJa:"通知予定の駅に対して、通知が鳴ったのはいつでしたか？", explEn:"Relative to your notification station, when did the alert sound?",
+    opts:[
+      { v:"early",   ja:"早い",   en:"Early",   subJa:"到着する前に鳴った",        subEn:"before reaching the station",  tone:"warn" },
+      { v:"perfect", ja:"ちょうど", en:"Perfect", subJa:"到着した後に鳴った",        subEn:"after reaching the station",   tone:"ok"   },
+      { v:"late",    ja:"遅い",   en:"Late",    subJa:"発車した後（通り過ぎ）に鳴った", subEn:"after leaving (passing) it",  tone:"warn" },
+    ] });
+  qs.push({ key:"sleepState",
+    ja:"通知が鳴ったとき、あなたは？", en:"When the alert came, you were…",
+    explJa:"眠りの深さは反応時間の解釈に使います（正直な回答が一番役立ちます）。", explEn:"How deeply were you sleeping? Used to interpret your response time — honest answers help most.",
+    opts:[
+      { v:"deep",  ja:"深く眠っていた",       en:"Deeply asleep" },
+      { v:"light", ja:"浅く眠っていた",       en:"Lightly asleep" },
+      { v:"none",  ja:"眠れていなかった",     en:"Wasn't asleep" },
+      { v:"awake", ja:"起きていた（スマホ操作中）", en:"Awake (on my phone)" },
+    ] });
+  if (fired && evalEnabled()){
+    qs.push({ key:"evalNotice",
+      ja:"刺激に気づきやすかった？", en:"Was it noticeable?",
+      explJa:"手首の刺激そのものの気づきやすさを教えてください。", explEn:"How easy was the wrist stimulus itself to notice?",
+      opts:[
+        { v:"hard", ja:"気づきにくい", en:"Hard to notice", tone:"warn" },
+        { v:"ok",   ja:"普通",       en:"So-so" },
+        { v:"easy", ja:"すぐ気づいた", en:"Noticed at once", tone:"ok" },
+      ] });
+    qs.push({ key:"evalComfort",
+      ja:"刺激の感じ方は？", en:"How did it feel?",
+      explJa:"痛み・不快感の程度を教えてください。", explEn:"How much did it hurt or feel unpleasant?",
+      opts:[
+        { v:"unpleasant", ja:"痛い・不快", en:"Hurt / unpleasant", tone:"warn" },
+        { v:"neutral",    ja:"普通",     en:"Neutral" },
+        { v:"fine",       ja:"平気",     en:"Totally fine", tone:"ok" },
+      ] });
+    qs.push({ key:"evalScore", type:"scale",
+      ja:"総合評価", en:"Overall rating",
+      explJa:"起こす刺激として1〜10で。1＝弱すぎ／効かない、10＝完璧。", explEn:"As a wake-up stimulus, rate 1-10. 1 = too weak / useless, 10 = perfect." });
+  }
+  return qs;
+}
+
+// Open the wizard for the just-saved response record. `fired` decides whether the
+// stimulus-rating questions appear (nothing to rate if nothing reached the wrist).
+function openSurvey(at){
   const log = loadLog();
   let fired = false;
-  for (let i = log.length - 1; i >= 0; i--){
-    if (log[i].awakeAt === at){ log[i].alertTiming = timing; fired = (log[i].stimDecision === "fired"); break; }
-  }
-  try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch(_){}
-  S.feedbackAwakeAt = null;
-  // then the subjective pattern evaluation — only when a stimulus actually reached the wrist
-  // (nothing to rate otherwise). BLINDED: the user is never told which pattern it was.
-  if (fired && evalEnabled()){ S.evalAwakeAt = at; showEvalBanner(); }
+  for (let i = log.length - 1; i >= 0; i--){ if (log[i].awakeAt === at){ fired = (log[i].stimDecision === "fired"); break; } }
+  SURVEY.at = at; SURVEY.i = 0; SURVEY.ans = {};
+  SURVEY.qs = surveyBuild(fired);
+  if (!SURVEY.qs.length){ return; }
+  $("surveyOvl").classList.add("show");
+  surveyRender();
 }
 
-// ── post-awake pattern evaluation (blinded subjective ratings) ──────────────────
-// Three quick ratings, all optional (a groggy user must not be forced — forced surveys
-// corrupt data). They tag the SAME response record as the timing answer, joined to patternId.
-const _eval = { notice:null, comfort:null, score:null };
-function setEval(dim, val, btn){
-  _eval[dim] = val;
-  [...btn.parentElement.children].forEach(b => b.classList.toggle("sel", b === btn));   // single-select
-}
-function showEvalBanner(){
-  _eval.notice = _eval.comfort = _eval.score = null;
-  $("evalScoreRow").innerHTML = Array.from({length:10}, (_,i)=>i+1)
-    .map(n => `<button class="btn icon-btn" onclick="setEval('score',${n},this)">${n}</button>`).join("");
-  document.querySelectorAll("#evalBanner .eval-opts .btn.sel").forEach(b=>b.classList.remove("sel"));
-  $("evalBanner").classList.add("show");
-}
-function saveEval(){
-  const at = S.evalAwakeAt;
-  if (at){
-    const log = loadLog();
-    for (let i = log.length - 1; i >= 0; i--){
-      if (log[i].awakeAt === at){
-        log[i].evalNotice  = _eval.notice;
-        log[i].evalComfort = _eval.comfort;
-        log[i].evalScore   = _eval.score;
-        break;
-      }
-    }
-    try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch(_){}
+function surveyRender(){
+  const q = SURVEY.qs[SURVEY.i]; if (!q){ surveyFinish(); return; }
+  const total = SURVEY.qs.length, n = SURVEY.i + 1;
+  const cur = (q.key in SURVEY.ans) ? SURVEY.ans[q.key] : null;
+  $("surveyCount").textContent = `${n} / ${total}`;
+  $("surveyDots").innerHTML = SURVEY.qs.map((_, k) => `<i class="${k < SURVEY.i ? "done" : (k === SURVEY.i ? "on" : "")}"></i>`).join("");
+  $("surveyTitle").innerHTML = `<span class="ja">${q.ja}</span><span class="en">${q.en}</span>`;
+  $("surveyExpl").innerHTML  = `<span class="ja">${q.explJa || ""}</span><span class="en">${q.explEn || ""}</span>`;
+  const body = $("surveyBody");
+  if (q.type === "scale"){
+    const nums = Array.from({length:10}, (_, k) => k + 1).map(v =>
+      `<button class="survey-opt${cur === v ? " sel" : ""}" onclick="surveyPick(${v})">${v}</button>`).join("");
+    body.className = "";
+    body.innerHTML = `<div class="survey-opts survey-scale">${nums}</div>
+      <div class="survey-ends"><span><span class="ja">1・弱すぎ</span><span class="en">1 · too weak</span></span>
+      <span><span class="ja">完璧・10</span><span class="en">perfect · 10</span></span></div>`;
+  } else {
+    body.className = "survey-opts";
+    body.innerHTML = q.opts.map(o => {
+      const sub = o.subJa ? `<span class="so-sub"><span class="ja">${o.subJa}</span><span class="en">${o.subEn || ""}</span></span>` : "";
+      return `<button class="survey-opt ${o.tone || ""}${cur === o.v ? " sel" : ""}" onclick="surveyPick('${o.v}')">
+        <span class="so-main"><span class="ja">${o.ja}</span><span class="en">${o.en}</span></span>${sub}</button>`;
+    }).join("");
   }
-  skipEval();
+  $("surveyBack").style.visibility = SURVEY.i === 0 ? "hidden" : "visible";
 }
-function skipEval(){ $("evalBanner").classList.remove("show"); S.evalAwakeAt = null; }
+
+// Record the answer, persist immediately, then auto-advance after a brief highlight.
+function surveyPick(v){
+  const q = SURVEY.qs[SURVEY.i]; if (!q) return;
+  SURVEY.ans[q.key] = v;
+  surveyPersist();
+  surveyRender();                       // paint the selected state
+  setTimeout(surveyNext, 180);
+}
+function surveyNext(){ if (SURVEY.i < SURVEY.qs.length - 1){ SURVEY.i++; surveyRender(); } else surveyFinish(); }
+function surveyBack(){ if (SURVEY.i > 0){ SURVEY.i--; surveyRender(); } }
+function surveySkip(){ surveyNext(); }   // leave this question unanswered and move on
+function surveyFinish(){ surveyPersist(); $("surveyOvl").classList.remove("show"); SURVEY.at = null; }
+
+// Write whatever's answered so far onto the response-log record (keyed by awakeAt),
+// and mirror the timing onto S.alertTiming so the ride-history row can summarise it.
+function surveyPersist(){
+  const at = SURVEY.at; if (!at) return;
+  const a = SURVEY.ans;
+  if (a.alertTiming) S.alertTiming = a.alertTiming;
+  const log = loadLog();
+  for (let i = log.length - 1; i >= 0; i--){
+    if (log[i].awakeAt === at){
+      if (a.alertTiming != null) log[i].alertTiming = a.alertTiming;
+      if (a.sleepState  != null) log[i].sleepState  = a.sleepState;
+      if (a.evalNotice  != null) log[i].evalNotice  = a.evalNotice;
+      if (a.evalComfort != null) log[i].evalComfort = a.evalComfort;
+      if (a.evalScore   != null) log[i].evalScore   = a.evalScore;
+      break;
+    }
+  }
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch(_){}
+}
 
 // ── ride history (user-facing; separate from the response-time research log) ──
 function loadRides(){ try { return JSON.parse(localStorage.getItem(RIDE_KEY) || "[]"); } catch(_){ return []; } }
@@ -2800,11 +3096,21 @@ function exportLog(){
   //                  today" are indistinguishable in the data.
   //   stimDecision — "fired", or why the limiter suppressed it. A suppressed stimulus still
   //                  produces a row, and must not be read as a slow response to a real one.
-  // NOTE: this is the THIRD semantics epoch for this CSV (see alert-counts-physical-stations
-  // for the 2026-07-03 split); rows before 2026-07-23 have none of these fields.
+  // NOTE: this is the FOURTH semantics epoch for this CSV (see alert-counts-physical-stations
+  // for the 2026-07-03 split); rows before 2026-07-23 have none of the habituation fields, and
+  // rows before 2026-08-03 have none of the FOURTH-epoch fields (appended at the very end):
+  //   sleepState      — deep|light|none|awake, self-reported in the post-alert survey. Separates
+  //                     "habituated" from "was barely asleep" when reading responseSec.
+  //   context         — train|test, set once per session (real ride vs a nap/bedtime rehearsal).
+  //                     NEVER pool the two blindly; motion, noise and true sleep inertia differ.
+  //   deliveredPulses — count of `0a` delivery reports the band emitted for this alert (native
+  //                     only): HARDWARE proof the stimulus physically fired. 0/blank = no proof.
+  //   skinContact     — whether the band reported skin contact at delivery (native only). A zap
+  //                     with skinContact=false likely never reached the wearer.
   const cols = ["awakeAt","responseSec","line","train","trainType","dest","alertStopsBefore","stopsAtAlert","alertSource","delaySec","ble","alertTiming",
                 "patternId","patternPolicy","stimChannel","exposures","stimDecision",
-                "evalNotice","evalComfort","evalScore"];
+                "evalNotice","evalComfort","evalScore",
+                "sleepState","context","deliveredPulses","skinContact","fireCount"];
   const csv = [cols.join(",")]
     .concat(log.map(r => cols.map(c => { const v = r[c]; return /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : (v ?? ""); }).join(",")))
     .join("\r\n");
@@ -2820,6 +3126,28 @@ function clearLog(){
   if (!confirm(tt(`⚠️ 記録 ${n} 件をすべて削除します。元に戻せません。`, `⚠️ Delete ALL ${n} saved records? This CANNOT be undone.`))) return;
   try { localStorage.removeItem(LOG_KEY); } catch(_){}
   S.times = []; updateExportBtn();
+}
+
+// New-respondent reset. Manual policy switching is KEPT — this does not automate the block
+// switch; it only returns the policy to the baseline default (fixed/single) so the next
+// respondent starts their 5× single-pulse phase cleanly. The exposure/rotation cursors live in
+// PAT_KEY and otherwise persist across rides AND across respondents (that carryover is exactly
+// what corrupted respondent 2's exposure labels), so they MUST be cleared here. The stimulus
+// channel and the eval on/off are study-wide setup, not per-respondent, so they are left alone.
+function resetStudy(){
+  const n = loadLog().length;
+  const first = n
+    ? tt(`⚠️ 新しい被験者の準備：記録 ${n} 件を含む実験状態をすべて消去します。\n\n先にCSVを書き出しましたか？`,
+         `⚠️ New respondent: this erases all study state, including ${n} logged record(s).\n\nHave you already exported the CSV?`)
+    : tt(`新しい被験者の準備：提示回数・乗車履歴・方式をリセットします。`,
+         `New respondent: reset exposure counts, ride history and policy.`);
+  if (!confirm(first)) return;
+  if (!confirm(tt(`本当にリセットしますか？元に戻せません。`, `Reset now? This CANNOT be undone.`))) return;
+  [LOG_KEY, PAT_KEY, PAT_POLICY_KEY, PAT_FIXED_KEY, CTX_KEY, RIDE_KEY].forEach(k => { try { localStorage.removeItem(k); } catch(_){} });
+  S.times = [];
+  updateExportBtn(); renderRideHistory(); renderStimUI(); syncContextSeg();
+  alert(tt(`リセット完了。方式は「固定／single」に戻りました。刺激チャンネルはそのままです。`,
+           `Reset complete. Policy is back to Fixed / single. The stimulus channel is unchanged.`));
 }
 
 // ⚠️ BOOT LAST, AFTER EVERY DECLARATION ABOVE.
