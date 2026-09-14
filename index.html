@@ -555,21 +555,21 @@
   <div id="napView" style="display:none">
     <div class="card">
       <div class="step-title lk" style="margin-bottom:.5rem"><span class="ja">仮眠モード</span><span class="en">Nap / sleep mode</span></div>
-      <p class="hint" style="text-align:left;margin:.1rem 0 .8rem"><span class="ja">列車とは無関係に、眠りについてから設定時間後に刺激を発火し、反応時間を記録します。</span><span class="en">Independent of any train — fires the stimulus a set time after you settle to sleep, then logs your response time.</span></p>
+      <p class="hint" style="text-align:left;margin:.1rem 0 .8rem"><span class="ja">列車とは関係なく、眠りについてから設定した時間が経つと刺激を出し、反応時間を記録します。</span><span class="en">Independent of any train — fires the stimulus a set time after you settle to sleep, then logs your response time.</span></p>
 
       <!-- idle: set delay + start -->
       <div id="napIdle">
         <div class="field" style="max-width:70%">
-          <label class="fld" for="napDelay"><span class="ja">発火まで（分）</span><span class="en">Fire after (minutes)</span></label>
-          <input id="napDelay" type="number" min="0" max="180" step="1" value="45" inputmode="numeric">
+          <label class="fld" for="napDelay"><span class="ja">刺激までの時間（分）</span><span class="en">Fire after (minutes)</span></label>
+          <input id="napDelay" type="number" min="0" max="600" step="1" value="45" inputmode="numeric">
         </div>
         <p class="hint" style="text-align:left;margin:.3rem 0 .8rem"><span class="ja">深い睡眠は入眠の約20〜90分後。夜間はより深く眠れます。</span><span class="en">Deep sleep is ~20–90 min after onset; overnight naps reach it more reliably.</span></p>
 
         <div class="field" style="max-width:70%">
-          <label class="fld" for="napRefire"><span class="ja">無反応なら再発火（秒 / 0＝しない）</span><span class="en">Re-fire if no response (sec / 0 = off)</span></label>
+          <label class="fld" for="napRefire"><span class="ja">反応がなければ再度刺激（秒 / 0＝なし）</span><span class="en">Re-fire if no response (sec / 0 = off)</span></label>
           <input id="napRefire" type="number" min="0" max="120" step="5" value="15" inputmode="numeric">
         </div>
-        <p class="hint" style="text-align:left;margin:.3rem 0 .8rem"><span class="ja">起きるまで同じ刺激を繰り返します。反応時間は最初の発火から測定。安全上、1回のセッションで最大5回まで。</span><span class="en">Repeats the same stimulus until you wake. Response time is measured from the first fire. Capped at 5 fires per session for safety.</span></p>
+        <p class="hint" style="text-align:left;margin:.3rem 0 .8rem"><span class="ja">起きるまで同じ刺激を繰り返します。反応時間は最初の刺激から測ります。安全のため、1回のセッションで最大10回までです。</span><span class="en">Repeats the same stimulus until you wake. Response time is measured from the first fire. Capped at 10 fires per session for safety.</span></p>
 
         <div class="field" style="margin-bottom:12px">
           <label class="fld"><span class="ja">利用シーン（データ記録用）</span><span class="en">Session type (for the data log)</span></label>
@@ -592,9 +592,9 @@
 
       <!-- armed: counting down to the fire -->
       <div id="napArmed" style="display:none; text-align:center">
-        <div class="tl" style="margin-top:.4rem"><span class="ja">発火まで</span><span class="en">Fires in</span></div>
+        <div class="tl" style="margin-top:.4rem"><span class="ja">刺激まで</span><span class="en">Fires in</span></div>
         <div class="tv" id="napCountdown" style="font-size:2.4rem">--:--</div>
-        <p class="hint"><span class="ja">画面を開いたまま、端末を近くに置いてください。バックグラウンドでは発火しない場合があります。</span><span class="en">Keep this screen open and the phone nearby. Firing may not run reliably in the background.</span></p>
+        <p class="hint" id="napArmedHint"><span class="ja">画面を開いたまま、端末を近くに置いてください。バックグラウンドでは作動しないことがあります。</span><span class="en">Keep this screen open and the phone nearby. Firing may not run reliably in the background.</span></p>
         <button class="btn danger mt" onclick="cancelNap()"><span class="ja">中止</span><span class="en">Cancel</span></button>
       </div>
 
@@ -717,16 +717,24 @@
     <div class="sec">
       <div class="sec-t"><span class="ja">実験データ</span><span class="en">Response-time log</span></div>
       <div class="btn-row">
-        <button class="btn ghost" id="btnExport" onclick="exportLog()" disabled>CSV 書き出し (0)</button>
-        <button class="btn ghost" style="max-width:38%" onclick="clearLog()"><span class="ja">消去</span><span class="en">Clear</span></button>
+        <button class="btn ghost" id="btnExportNap" onclick="exportLog('nap')" disabled>仮眠CSV (0)</button>
+        <button class="btn ghost" style="max-width:34%" onclick="clearLog('nap')"><span class="ja">消去</span><span class="en">Clear</span></button>
       </div>
-      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">「起きた！」のタップごとに反応時間をこの端末に記録します。</span><span class="en">Each “I’m awake” tap logs your response time on this device.</span></p>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn ghost" id="btnExportTrain" onclick="exportLog('train')" disabled>電車CSV (0)</button>
+        <button class="btn ghost" style="max-width:34%" onclick="clearLog('train')"><span class="ja">消去</span><span class="en">Clear</span></button>
+      </div>
+      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">仮眠テストと電車テストは別々に記録・書き出しされます。</span><span class="en">Nap tests and train tests are logged and exported separately.</span></p>
     </div>
 
     <div class="sec">
       <div class="sec-t"><span class="ja">新しい被験者</span><span class="en">New respondent</span></div>
-      <button class="btn danger" onclick="resetStudy()"><span class="ja">実験状態をリセット</span><span class="en">Reset study state</span></button>
-      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">記録・提示回数（exposures）・乗車履歴を消去し、方式を「固定／single」に戻します。刺激チャンネルはそのまま残ります。<b>先にCSVを書き出してから</b>実行してください。</span><span class="en">Clears the log, exposure counts and ride history, and returns the policy to Fixed / single. The stimulus channel is left unchanged. <b>Export the CSV first.</b></span></p>
+      <button class="btn danger" onclick="resetStudy('all')"><span class="ja">全体をリセット</span><span class="en">Reset everything</span></button>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn danger" onclick="resetStudy('nap')"><span class="ja">仮眠のみ</span><span class="en">Nap only</span></button>
+        <button class="btn danger" onclick="resetStudy('train')"><span class="ja">電車のみ</span><span class="en">Train only</span></button>
+      </div>
+      <p class="hint" style="text-align:left;margin-top:8px"><span class="ja">記録・提示回数・履歴を消去します。「全体」は方式も固定／singleに戻します。刺激チャンネルは残ります。<b>先にCSVを書き出してから</b>実行してください。</span><span class="en">Clears records, exposure counts and history. “Reset everything” also returns the policy to Fixed / single. The stimulus channel is kept. <b>Export the CSV first.</b></span></p>
     </div>
 
     <div class="sec">
@@ -793,6 +801,11 @@ const DEVICES = {
     service: "156e1000-a300-4fea-897b-86f698d74461",        // confirmed: primary stimulus service
     chars: ["00001001-0000-1000-8000-00805f9b34fb",         // confirmed: vibrate (0x1001)
             "00001003-0000-1000-8000-00805f9b34fb"],        // confirmed: zap (0x1003)
+    // Delivery-report ("0a") notifications live on 0x2002 in a SEPARATE service (156e2000). Each
+    // 0a = one delivered pulse; byte 6 = 0 off-body, nonzero on skin (see pavlok-ble-protocol).
+    // Subscribing here is the proof-of-fire / skin-contact oracle (deliveredPulses + skinContact).
+    eventsService: "156e2000-a300-4fea-897b-86f698d74461",
+    eventsChar:    "00002002-0000-1000-8000-00805f9b34fb",
     momentary: true,
     // `intensity` here is already on the universal 0-100 scale AND already limiter-approved.
     encode(intensity, channel){
@@ -807,7 +820,7 @@ const DEVICES = {
 };
 // True 128-bit UUIDs only (skips not-yet-known `null` services) — for scan filters / access lists.
 const isUuid = (s) => typeof s === "string" && /^[0-9a-f]{8}-[0-9a-f-]+$/i.test(s);
-const bleServices = () => Object.values(DEVICES).map(d => d.service).filter(isUuid);
+const bleServices = () => Object.values(DEVICES).flatMap(d => [d.service, d.eventsService]).filter(isUuid);
 const deviceByName = (name) => Object.keys(DEVICES).find(k =>
   name && DEVICES[k].namePrefix && name.startsWith(DEVICES[k].namePrefix));
 
@@ -1142,7 +1155,7 @@ const IS_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && wi
 // It stays null until that Kotlin plugin exists; every `IS_NATIVE && _NT` branch then falls
 // through to the standard _BLE path. Declaring it here avoids a ReferenceError on native, since
 // those branches read `_NT` before it would otherwise be defined.
-let _BLE = null, _LN = null, _HP = null, _FG = null, _NT = null;
+let _BLE = null, _LN = null, _HP = null, _FG = null, _NT = null, _FS = null, _SH = null, _NAP = null;
 function initPlugins(){
   if (!IS_NATIVE) return;
   const P = window.Capacitor?.Plugins || {};
@@ -1150,6 +1163,9 @@ function initPlugins(){
   _LN  = P.LocalNotifications         || null;  // @capacitor/local-notifications
   _HP  = P.Haptics                    || null;  // @capacitor/haptics
   _FG  = P.AndroidForegroundService   || null;  // @capawesome-team/capacitor-android-foreground-service
+  _FS  = P.Filesystem                 || null;  // @capacitor/filesystem — CSV export needs a real file
+  _SH  = P.Share                      || null;  // @capacitor/share — hand the CSV to a share sheet
+  _NAP = P.NapAlarm                   || null;  // custom (Phase 2b) — exact background nap alarm
   _NT  = P.NorisugoshiNative          || null;  // custom plugin — null until Phase 2/2b Kotlin is built
 }
 window.addEventListener("load", initPlugins);
@@ -2134,14 +2150,14 @@ function signal(){
   // policy and the PRIOR exposure count all go into the alert context so the response record
   // can identify the experimental condition. Without those columns the CSV cannot distinguish
   // habituation from an ordinary bad night.
-  const pat = stimSelectPattern(patternPolicy(), patternFixedId());
+  const pat = stimSelectPattern(patternPolicy(), patternFixedId(), PAT_NS.TRAIN);   // train-mode bucket
   if (S.alertCtx){
     S.alertCtx.patternId     = pat.id;
     S.alertCtx.patternPolicy = patternPolicy();
     S.alertCtx.stimChannel   = stimChannel();
-    S.alertCtx.exposures     = stimExposures(pat.id);   // BEFORE this delivery
+    S.alertCtx.exposures     = stimExposures(pat.id, PAT_NS.TRAIN);   // BEFORE this delivery
   }
-  blePlayPattern(pat, hapticStrength(), stimChannel()).then(ok => {
+  blePlayPattern(pat, hapticStrength(), stimChannel(), { ns: PAT_NS.TRAIN }).then(ok => {
     if (S.alertCtx) S.alertCtx.stimDecision = ok ? "fired" : stimLastDecision;
   });
 
@@ -2234,6 +2250,7 @@ Open the https://…onrender.com address (not an http:// or IP address).`));
     dev.addEventListener("gattserverdisconnected", () => { bleReset(); setBlePill(false); });
     setBlePill(true, DEVICES[kind].label);
     $("btnBleTest").disabled = false;
+    subscribeDeliveryReports(kind, srv);            // proof-of-fire / skin-contact oracle (non-fatal)
   }catch(e){
     setBlePill(false);
     if (e.name === "NotFoundError"){
@@ -2288,20 +2305,28 @@ async function connectBLE_native(){
     // at scan time, even on Android 12+ where the manifest assertion makes that unnecessary.
     // This app never derives location from scan results — it connects to one known wristband.
     await _BLE.initialize({ androidNeverForLocation: true });
-    // Show every supported device; grant access to all known services, then detect by name.
-    const result = await _BLE.requestDevice({ optionalServices: bleServices() });
+    // Filter the scan to Pavlok advertising only (same rule as the web path's namePrefix filter),
+    // so the picker isn't flooded with every nearby BLE device; grant access to all known services
+    // so we can probe/write after connecting.
+    const result = await _BLE.requestDevice({ namePrefix: DEVICES.pavlok.namePrefix, optionalServices: bleServices() });
     const deviceId = result?.device?.deviceId ?? result?.deviceId;
     const name = result?.device?.name ?? result?.name ?? "";
     if (!deviceId) throw new Error("No device returned from requestDevice");
     await _BLE.connect({ deviceId });
     const kind = deviceByName(name) || "pavlok";    // native writes by UUID; kind picks the protocol
     S.ble.deviceId = deviceId; S.ble.kind = kind;
-    // listen for disconnect
-    _BLE.addListener("onDisconnected", (ev) => {
-      if (ev?.deviceId === deviceId){ bleReset(); setBlePill(false); }
-    }).catch(()=>{});
+    // listen for disconnect. addListener may return a PluginListenerHandle (no .catch) OR a
+    // Promise depending on the Capacitor version, so normalise through Promise.resolve and guard
+    // a synchronous throw — otherwise ".catch is not a function" aborted a SUCCESSFUL connect into
+    // the failure path (the "connect failed" prompt fired even though the band was connected).
+    try {
+      Promise.resolve(_BLE.addListener("onDisconnected", (ev) => {
+        if (ev?.deviceId === deviceId){ bleReset(); setBlePill(false); }
+      })).catch(()=>{});
+    } catch(_){}
     setBlePill(true, DEVICES[kind]?.label ?? name ?? "device");
     $("btnBleTest").disabled = false;
+    subscribeDeliveryReports(kind);                 // proof-of-fire / skin-contact oracle (non-fatal)
   } catch(e) {
     setBlePill(false);
     // No Location line here: the app asserts neverForLocation, so scanning works with Location
@@ -2359,7 +2384,7 @@ const STIM_LIMITS = {
   zapHardMaxIntensity: 100,
   zapMaxIntensity:     100,
   zapMinIntervalSec:   8,     // refractory period between zap EVENTS, in seconds
-  zapMaxPerRide:       5,
+  zapMaxPerRide:       10,    // also the ceiling for nap re-fire escalation
   zapMaxPerDay:        20,
   vibeMinIntervalMs:   400,   // debounce only
   // Dose ceiling WITHIN one event. A pattern is several writes, so the caps above bound how
@@ -2492,23 +2517,40 @@ const evalEnabled = () => (localStorage.getItem(EVAL_KEY) || "on") !== "off";
 // {rotate:int, last:"id", exp:{id:count}} — exposures persist across rides, which they must:
 // habituation is a function of prior exposures, not of calendar time.
 const PAT_KEY = "norisugoshi_pattern_state";
-const patState = () => { try { return JSON.parse(localStorage.getItem(PAT_KEY) || "{}"); } catch(_){ return {}; } };
-const patSave  = (s) => { try { localStorage.setItem(PAT_KEY, JSON.stringify(s)); } catch(_){} };
-const stimExposures = (id) => (patState().exp || {})[id] || 0;
-function stimRecordExposure(id){
-  const s = patState(); s.exp = s.exp || {};
-  s.exp[id] = (s.exp[id] || 0) + 1; s.last = id; patSave(s);
+// Pattern/exposure state is NAMESPACED BY MODE so the nap-test and the train-test are fully
+// isolated: each mode keeps its own per-pattern exposure counts + rotation cursor, and neither
+// pollutes the other's habituation covariate. Shape:
+//   { nap:{exp:{id:n},rotate,last}, train:{exp:{id:n},rotate,last} }
+const PAT_NS = { NAP: "nap", TRAIN: "train" };
+const patAll = () => { try { return JSON.parse(localStorage.getItem(PAT_KEY) || "{}"); } catch(_){ return {}; } };
+function patState(ns){
+  const all = patAll();
+  // one-time migration: a legacy FLAT {exp/rotate/last} (pre-isolation) becomes the train bucket
+  if (all.exp || ("rotate" in all) || ("last" in all)){
+    all.train = all.train || { exp: all.exp || {}, rotate: all.rotate || 0, last: all.last || null };
+    delete all.exp; delete all.rotate; delete all.last;
+    try { localStorage.setItem(PAT_KEY, JSON.stringify(all)); } catch(_){}
+  }
+  return all[ns] || { exp:{}, rotate:0, last:null };
+}
+function patSave(ns, s){ const all = patAll(); all[ns] = s; try { localStorage.setItem(PAT_KEY, JSON.stringify(all)); } catch(_){} }
+const stimExposures = (id, ns) => (patState(ns).exp || {})[id] || 0;
+const stimExposuresTotal = (id) => stimExposures(id, PAT_NS.NAP) + stimExposures(id, PAT_NS.TRAIN);
+function stimRecordExposure(id, ns){
+  const s = patState(ns); s.exp = s.exp || {};
+  s.exp[id] = (s.exp[id] || 0) + 1; s.last = id; patSave(ns, s);
 }
 // The POLICY is the independent variable:
 //   fixed    — same pattern every alert. The CONTROL; responseSec should drift upward here.
 //   random   — drawn from the pool, never repeating the previous one. The intervention.
 //   rotating — deterministic cycle: varied but learnable, so it may habituate to the sequence.
-function stimSelectPattern(policy, fixedId){
+// `ns` selects the mode bucket (nap vs train) so the rotation/last cursors don't cross over.
+function stimSelectPattern(policy, fixedId, ns){
   if (policy === "fixed") return patternById(fixedId);
-  const s = patState();
+  const s = patState(ns);
   if (policy === "repeating"){
     const i = (s.rotate || 0) % VARYING_PATTERNS.length;
-    s.rotate = (i + 1) % VARYING_PATTERNS.length; patSave(s);
+    s.rotate = (i + 1) % VARYING_PATTERNS.length; patSave(ns, s);
     return VARYING_PATTERNS[i];
   }
   // random, excluding the previous pattern — a repeat would be indistinguishable from the
@@ -2526,14 +2568,15 @@ function encodeStep(dev, channel, intensity, count){
     : [{ characteristic: dev.chars[0], value: Uint8Array.of(b0, 0x0c, intensity, 0x16, 0x16) }];
 }
 
-// Play a pattern on the WEB Bluetooth path. (On native, Java's BleManager.playPattern owns
-// this — it has to, because the background service fires while this WebView is frozen.)
+// Play a pattern step-by-step over BLE — works on BOTH web (cached GATT chars) and native
+// (the Capacitor plugin, via bleWriteRaw). NOTE: this runs in the WebView, so on native it only
+// fires while the app is alive/foreground; true background firing needs the Phase-2b service.
 // `opts.countExposure === false` plays the pattern WITHOUT recording it as an exposure — for the
 // settings preview. The safety budget still applies (a preview zap is a real zap), but the
 // experiment's exposure counter must not move, or testing the UI would contaminate the data.
 async function blePlayPattern(pattern, strength, channel, opts){
   const kind = S.ble.kind;
-  if (!kind || !DEVICES[kind] || !S.ble.chars) return false;
+  if (!kind || !DEVICES[kind] || !bleConnected()) return false;
   const dev = DEVICES[kind];
   channel = channel || "vibe";
 
@@ -2552,14 +2595,13 @@ async function blePlayPattern(pattern, strength, channel, opts){
     const intensity = Math.max(1, Math.round(ceiling * s.i / 100));
     setTimeout(() => {
       for (const w of encodeStep(dev, channel, intensity, count)){
-        const ch = S.ble.chars[w.characteristic];
-        if (ch) ch.writeValue(w.value).catch(e => console.warn("BLE write failed", e.message));
+        bleWriteRaw(dev, w.characteristic, w.value).catch(e => console.warn("BLE write failed", e.message));
       }
     }, at);
     at += playbackMs(count, channel) + s.gap;
   }
   stimRecordFired(channel);                                  // safety budget: always
-  if (!opts || opts.countExposure !== false) stimRecordExposure(pattern.id);
+  if (!opts || opts.countExposure !== false) stimRecordExposure(pattern.id, (opts && opts.ns) || PAT_NS.TRAIN);
   return true;
 }
 
@@ -2614,14 +2656,14 @@ function renderStimUI(){
     : '<span class="ja">パターン一覧・提示回数</span><span class="en">Pattern pool &amp; exposures</span>';
 
   $("patGrid").innerHTML = (isFixed ? PATTERNS : VARYING_PATTERNS).map(p => {
-    const n = stimExposures(p.id);
+    const n = stimExposuresTotal(p.id);   // settings display shows nap + train combined
     const on = isFixed && p.id === fixed ? " on" : "";
     return `<button class="pat-chip${on}" onclick="setPatternFixed('${p.id}')">`
          + `<span class="nm">${tt(p.ja, p.en)}<em>${n}${tt("回","×")}</em></span>`
          + `<span class="shape">${patternGlyph(p)}</span></button>`;
   }).join("");
 
-  const total = PATTERNS.reduce((n,p) => n + stimExposures(p.id), 0);
+  const total = PATTERNS.reduce((n,p) => n + stimExposuresTotal(p.id), 0);
   const showBudget = (today) => {
     $("stimStatus").textContent = ch === "zap"
       ? tt(`本日の電気刺激 ${today}/${STIM_LIMITS.zapMaxPerDay}回 · 総提示 ${total}回`,
@@ -2662,6 +2704,58 @@ async function patternPreview(){
   renderStimUI();
 }
 
+// Write one raw payload (a Uint8Array) to a characteristic, over whichever transport is live.
+// Native (@capacitor-community/bluetooth-le RAW plugin) expects the value as a HEX STRING — the
+// same encoding BleClient produces via dataViewToHexString (e.g. [0x81,0x64] -> "8164"). The old
+// code sent base64 here, which the native side parsed as hex → wrong/empty bytes → the write was
+// rejected and NOTHING fired. That was the "zap didn't fire" bug.
+async function bleWriteRaw(dev, characteristic, value){
+  if (IS_NATIVE && _BLE && S.ble.deviceId){
+    const hex = Array.from(value, b => b.toString(16).padStart(2, "0")).join("");
+    return _BLE.write({ deviceId: S.ble.deviceId, service: dev.service, characteristic, value: hex });
+  }
+  const ch = S.ble.chars && S.ble.chars[characteristic];
+  if (!ch) throw new Error("no BLE transport");
+  return ch.writeValue(value);
+}
+
+// ── proof-of-fire / skin-contact oracle ──────────────────────────────────────────────────────
+// The band emits a "0a" delivery report per pulse on its events characteristic (0x2002, service
+// 156e2000). We count them (deliveredPulses) and read byte 6 (0 = off-body, nonzero = on skin) to
+// set skinContact on the CURRENT alert's record. Vibe emits no 0a, so vibe rows stay blank — as
+// does any connection where the subscription didn't attach (blank = no oracle, distinct from a
+// measured 0/false). Lazy-set (never pre-initialised) so "blank" keeps meaning "not measured".
+const hexToBytes = (h) => { const a=[]; if(!h) return a; for (let i=0;i+1<h.length;i+=2) a.push(parseInt(h.substr(i,2),16)); return a; };
+function onDeliveryReport(bytes){
+  if (!bytes || bytes[0] !== 0x0a) return;                 // only per-delivery reports (0a)
+  if (!S.alertCtx) return;                                 // nothing to attribute it to
+  S.alertCtx.deliveredPulses = (S.alertCtx.deliveredPulses || 0) + 1;
+  const onSkin = bytes.length > 6 && bytes[6] !== 0;
+  S.alertCtx.skinContact = (S.alertCtx.skinContact === true) || onSkin;   // any pulse on skin ⇒ true
+}
+// Subscribe to delivery reports once a connection is up. Native = raw-plugin notification event;
+// web = a GATT characteristic listener. Non-fatal: the oracle is a bonus on top of the 起きた tap.
+async function subscribeDeliveryReports(kind, server){
+  const d = DEVICES[kind]; if (!d || !isUuid(d.eventsService) || !d.eventsChar) return;
+  try {
+    if (IS_NATIVE && _BLE && S.ble.deviceId){
+      const svc = d.eventsService.toLowerCase(), ch = d.eventsChar.toLowerCase();
+      const key = `notification|${S.ble.deviceId}|${svc}|${ch}`;   // raw-plugin event key format
+      await _BLE.addListener(key, (ev) => onDeliveryReport(hexToBytes(ev && ev.value)));
+      await _BLE.startNotifications({ deviceId: S.ble.deviceId, service: svc, characteristic: ch });
+    } else if (server){                                    // web GATT
+      const svc = await server.getPrimaryService(d.eventsService);
+      const ch  = await svc.getCharacteristic(d.eventsChar);
+      await ch.startNotifications();
+      ch.addEventListener("characteristicvaluechanged", (e) => {
+        const dv = e.target.value, b = [];
+        for (let i=0;i<dv.byteLength;i++) b.push(dv.getUint8(i));
+        onDeliveryReport(b);
+      });
+    }
+  } catch(e){ console.warn("delivery-report subscribe failed:", e && e.message); }
+}
+
 // Send a signal to the connected device: value 0 = clear/off, 1..10 = alert strength.
 // `channel` is "vibe" (default) or "zap". The connected device's encode() turns the approved
 // intensity into its own characteristic write(s).
@@ -2687,23 +2781,8 @@ async function bleSend(value, channel, opts){
 
   const writes = dev.encode(intensity, channel);
   const done = () => { if (intensity > 0) stimRecordFired(channel); };
-  if (IS_NATIVE && _BLE && S.ble.deviceId){
-    for (const w of writes){
-      try {
-        // Capacitor bridge transfers binary as base64
-        const b64 = btoa(String.fromCharCode.apply(null, w.value));
-        await _BLE.write({ deviceId:S.ble.deviceId, service:dev.service, characteristic:w.characteristic, value:b64 });
-        done();                                  // only a write that landed consumes the budget
-      } catch(e){ console.warn("BLE write failed", e.message); }
-    }
-    return;
-  }
-  // Web Bluetooth fallback — write each payload to its cached GATT characteristic.
-  if (!S.ble.chars) return;
   for (const w of writes){
-    const ch = S.ble.chars[w.characteristic];
-    if (!ch) continue;
-    try { await ch.writeValue(w.value); done(); }
+    try { await bleWriteRaw(dev, w.characteristic, w.value); done(); }   // only a write that landed consumes the budget
     catch(e){ console.warn("BLE write failed", e.message); }
   }
 }
@@ -2712,6 +2791,15 @@ async function bleTest(){
   if (!bleConnected()){ alert(tt("先にデバイスを接続してください。", "Connect a device first.")); return; }
   await bleSend(hapticStrength());
   setTimeout(()=>bleSend(BLE_CLEAR), 1500);
+}
+
+// Local wall-clock ISO with timezone offset, e.g. "2026-09-14T14:26:00+09:00" — a readable
+// companion to the UTC awakeAt so JST (or any device timezone) reads correctly without conversion.
+function localIso(d){
+  const p = n => String(n).padStart(2, "0");
+  const off = -d.getTimezoneOffset();                 // minutes east of UTC (+540 for JST)
+  const sign = off >= 0 ? "+" : "-", a = Math.abs(off);
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}${sign}${p(Math.floor(a/60))}:${p(a%60)}`;
 }
 
 // ============================================================ RESPONSE TIMER (experiment)
@@ -2735,7 +2823,10 @@ function stopTimer(atMs){
   S.lastResponseSec = +sec.toFixed(2);      // shown on this ride's history row
 
   // ── persist the record so the experiment data survives reloads/restarts ──
-  const rec = Object.assign({ awakeAt: new Date().toISOString(), responseSec: +sec.toFixed(2) }, S.alertCtx || {});
+  // awakeAt is UTC (unambiguous, consistent with earlier data); awakeLocal is the SAME instant in
+  // the device's local wall-clock with offset (e.g. …T14:26:00+09:00) so JST reads at a glance.
+  const now = new Date();
+  const rec = Object.assign({ awakeAt: now.toISOString(), awakeLocal: localIso(now), responseSec: +sec.toFixed(2) }, S.alertCtx || {});
   const log = loadLog(); log.push(rec); try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch(_){}
 
   // recorded silently — hide the timer card (the stats live in 設定 → 実験データ, not here)
@@ -2778,23 +2869,51 @@ function renderNapPlan(){
   const el=$("napPlan"); if(!el) return;
   const pol=patternPolicy(), fx=patternFixedId(), ch=stimChannel();
   const pat = pol==="fixed" ? fx : tt("方式にしたがって選択","chosen by policy");
-  el.innerHTML = tt(`発火する刺激: ${ch} / ${pol}（${pat}）`, `Will fire: ${ch} / ${pol} (${pat})`);
+  el.innerHTML = tt(`送信する刺激: ${ch} / ${pol}（${pat}）`, `Will fire: ${ch} / ${pol} (${pat})`);
 }
 function startNap(){
-  const mins = Math.max(0, Math.min(180, Math.round(+($("napDelay").value) || 0)));
+  const mins = Math.max(0, Math.min(600, Math.round(+($("napDelay").value) || 0)));
   S.napArmed = true; S.napFireAt = Date.now() + mins*60000;
-  keepAwake();                           // hold the screen on so the timer isn't throttled
+  keepAwake();                           // hold the screen on while foreground
+  const hint = $("napArmedHint");
+  if (hint) hint.innerHTML = (IS_NATIVE && _NAP)
+    ? tt("画面を消しても設定時刻に作動します。端末は近くに置いてください。", "Fires at the set time even with the screen off. Keep the phone nearby.")
+    : tt("画面を開いたまま、端末を近くに置いてください。バックグラウンドでは作動しないことがあります。", "Keep this screen open and the phone nearby. Firing may not run reliably in the background.");
   napShow("armed"); napTick();
   clearInterval(S.napCountdownId); S.napCountdownId = setInterval(napTick, 1000);
-  clearTimeout(S.napFireTimeout);        S.napFireTimeout = setTimeout(napFire, mins*60000);
+  clearTimeout(S.napFireTimeout); S.napFireTimeout = null;
+  if (IS_NATIVE && _NAP){
+    // Phase 2b: a native EXACT alarm is the real trigger (survives screen-off / background).
+    // Keep a foreground service running so the process + BLE connection stay alive until it fires.
+    if (_FG){ try { _FG.startForegroundService({ title:"乗り過ごし防止", body:tt("仮眠モード：刺激を待機中…","Nap mode: waiting to fire…"), id:101, smallIcon:"ic_stat_icon_config_sample" }); } catch(_){} }
+    _NAP.schedule({ atMs: String(S.napFireAt) }).catch(e => {
+      alert(tt("アラームを設定できませんでした（正確なアラームの許可が必要な場合があります）: ",
+               "Couldn't set the alarm (exact-alarm permission may be required): ") + (e && (e.message||e)));
+    });
+    // No setTimeout on native — the alarm fires napFire() via __napFireFromNative even when the
+    // screen is off. The countdown above is display-only.
+  } else {
+    // Web / no native alarm: foreground setTimeout (only reliable while the screen stays on).
+    S.napFireTimeout = setTimeout(napFire, mins*60000);
+  }
 }
+// Called by MainActivity when the native alarm fires (see NapAlarmReceiver). JS owns the guard:
+// only fire if a nap is still armed (so a stale intent or a re-launch is a harmless no-op).
+window.__napFireFromNative = function(){ if (S.napArmed) napFire(); };
 function napTick(){
   const s = Math.max(0, Math.round((S.napFireAt - Date.now())/1000));
   $("napCountdown").textContent = String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
 }
+// Tear down the native Phase-2b pieces (pending alarm + the keep-alive foreground service).
+function napNativeCleanup(){
+  if (!IS_NATIVE) return;
+  if (_NAP){ try { _NAP.cancel(); } catch(_){} }
+  if (_FG){ try { _FG.stopForegroundService(); } catch(_){} }
+}
 function cancelNap(silent){
   clearTimeout(S.napFireTimeout); clearInterval(S.napCountdownId); clearInterval(S.timerId); clearInterval(S.napRefireId);
   S.napRefireId=null; S.napArmed=false; S.t0=null;
+  napNativeCleanup();
   bleSend(BLE_CLEAR); releaseAwake();
   if (silent===true){ $("napView").style.display="none"; $("setupView").style.display="block"; return; }
   napShow("idle");
@@ -2807,12 +2926,12 @@ function napFire(){
     line:"", train:"", trainType:"", dest:"", alertStopsBefore:"", stopsAtAlert:"",
     alertSource:"nap", delaySec:0, ble:bleConnected(), context: sessionContext(),
   };
-  const pat = stimSelectPattern(patternPolicy(), patternFixedId());
+  const pat = stimSelectPattern(patternPolicy(), patternFixedId(), PAT_NS.NAP);   // nap-mode bucket
   S.napPat = pat; S.napFireCount = 1;
   S.alertCtx.patternId=pat.id; S.alertCtx.patternPolicy=patternPolicy();
-  S.alertCtx.stimChannel=stimChannel(); S.alertCtx.exposures=stimExposures(pat.id);   // BEFORE this delivery
+  S.alertCtx.stimChannel=stimChannel(); S.alertCtx.exposures=stimExposures(pat.id, PAT_NS.NAP);   // BEFORE this delivery
   S.alertCtx.fireCount = 1;              // how many times the stimulus fired this wake (1 = woke to first fire)
-  blePlayPattern(pat, hapticStrength(), stimChannel()).then(ok => {   // first fire DOES count as the exposure
+  blePlayPattern(pat, hapticStrength(), stimChannel(), { ns: PAT_NS.NAP }).then(ok => {   // first fire DOES count as the exposure
     if (S.alertCtx) S.alertCtx.stimDecision = ok ? "fired" : stimLastDecision;
   });
   napCues();
@@ -2835,7 +2954,7 @@ function napFire(){
 // acks, when the limiter refuses (budget spent), or defensively if state was torn down.
 function napRefire(){
   if (S.alertAcked || !S.t0 || !S.napPat){ clearInterval(S.napRefireId); S.napRefireId=null; return; }
-  blePlayPattern(S.napPat, hapticStrength(), stimChannel(), { countExposure:false }).then(ok => {
+  blePlayPattern(S.napPat, hapticStrength(), stimChannel(), { countExposure:false, ns: PAT_NS.NAP }).then(ok => {
     if (!ok){ clearInterval(S.napRefireId); S.napRefireId=null; }   // suppressed (per-ride cap / refractory) → stop
   });
   S.napFireCount += 1;
@@ -2852,7 +2971,9 @@ function napCues(){
 }
 function napWake(){
   clearInterval(S.napRefireId); S.napRefireId=null;   // stop escalation the instant they wake
-  stopTimer();                           // records the row (responseSec + fireCount + alertCtx) and opens the survey
+  napNativeCleanup();                    // alarm already fired; release the keep-alive service
+  stopTimer();                           // records the CSV row (responseSec + fireCount + alertCtx) and opens the survey
+  recordNapRide();                       // also save a user-facing entry in 履歴 (stopTimer set S.lastResponseSec first)
   releaseAwake();
   napShow("idle"); renderNapPlan();
 }
@@ -2872,25 +2993,32 @@ function napWake(){
 // Answers persist after every tap, so a mid-survey kill still keeps what was answered.
 const SURVEY = { at:null, qs:[], i:0, ans:{} };
 
-function surveyBuild(fired){
+// `isNap` = this survey follows a nap-mode stimulus (alertSource "nap"), not a train alert. For
+// naps the alert-timing question is meaningless (no station) and the "awake on my phone" sleep
+// option doesn't apply, so both are dropped. Train surveys keep the full original set.
+function surveyBuild(fired, isNap){
   const qs = [];
-  qs.push({ key:"alertTiming",
-    ja:"通知のタイミングは？", en:"Alert timing?",
-    explJa:"通知予定の駅に対して、通知が鳴ったのはいつでしたか？", explEn:"Relative to your notification station, when did the alert sound?",
-    opts:[
-      { v:"early",   ja:"早い",   en:"Early",   subJa:"到着する前に鳴った",        subEn:"before reaching the station",  tone:"warn" },
-      { v:"perfect", ja:"ちょうど", en:"Perfect", subJa:"到着した後に鳴った",        subEn:"after reaching the station",   tone:"ok"   },
-      { v:"late",    ja:"遅い",   en:"Late",    subJa:"発車した後（通り過ぎ）に鳴った", subEn:"after leaving (passing) it",  tone:"warn" },
-    ] });
+  if (!isNap){
+    qs.push({ key:"alertTiming",
+      ja:"通知のタイミングは？", en:"Alert timing?",
+      explJa:"通知予定の駅に対して、通知が鳴ったのはいつでしたか？", explEn:"Relative to your notification station, when did the alert sound?",
+      opts:[
+        { v:"early",   ja:"早い",   en:"Early",   subJa:"到着する前に鳴った",        subEn:"before reaching the station",  tone:"warn" },
+        { v:"perfect", ja:"ちょうど", en:"Perfect", subJa:"到着した後に鳴った",        subEn:"after reaching the station",   tone:"ok"   },
+        { v:"late",    ja:"遅い",   en:"Late",    subJa:"発車した後（通り過ぎ）に鳴った", subEn:"after leaving (passing) it",  tone:"warn" },
+      ] });
+  }
+  const sleepOpts = [
+    { v:"deep",  ja:"深く眠っていた",   en:"Deeply asleep" },
+    { v:"light", ja:"浅く眠っていた",   en:"Lightly asleep" },
+    { v:"none",  ja:"眠れていなかった", en:"Wasn't asleep" },
+  ];
+  if (!isNap) sleepOpts.push({ v:"awake", ja:"起きていた（スマホ操作中）", en:"Awake (on my phone)" });
   qs.push({ key:"sleepState",
-    ja:"通知が鳴ったとき、あなたは？", en:"When the alert came, you were…",
+    ja: isNap ? "刺激があったとき、あなたは？" : "通知が鳴ったとき、あなたは？",
+    en: isNap ? "When the stimulus came, you were…" : "When the alert came, you were…",
     explJa:"眠りの深さは反応時間の解釈に使います（正直な回答が一番役立ちます）。", explEn:"How deeply were you sleeping? Used to interpret your response time — honest answers help most.",
-    opts:[
-      { v:"deep",  ja:"深く眠っていた",       en:"Deeply asleep" },
-      { v:"light", ja:"浅く眠っていた",       en:"Lightly asleep" },
-      { v:"none",  ja:"眠れていなかった",     en:"Wasn't asleep" },
-      { v:"awake", ja:"起きていた（スマホ操作中）", en:"Awake (on my phone)" },
-    ] });
+    opts: sleepOpts });
   if (fired && evalEnabled()){
     qs.push({ key:"evalNotice",
       ja:"刺激に気づきやすかった？", en:"Was it noticeable?",
@@ -2919,10 +3047,10 @@ function surveyBuild(fired){
 // stimulus-rating questions appear (nothing to rate if nothing reached the wrist).
 function openSurvey(at){
   const log = loadLog();
-  let fired = false;
-  for (let i = log.length - 1; i >= 0; i--){ if (log[i].awakeAt === at){ fired = (log[i].stimDecision === "fired"); break; } }
+  let fired = false, isNap = false;
+  for (let i = log.length - 1; i >= 0; i--){ if (log[i].awakeAt === at){ fired = (log[i].stimDecision === "fired"); isNap = (log[i].alertSource === "nap"); break; } }
   SURVEY.at = at; SURVEY.i = 0; SURVEY.ans = {};
-  SURVEY.qs = surveyBuild(fired);
+  SURVEY.qs = surveyBuild(fired, isNap);
   if (!SURVEY.qs.length){ return; }
   $("surveyOvl").classList.add("show");
   surveyRender();
@@ -3016,6 +3144,21 @@ function recordRide(){
   while (rides.length > RIDE_MAX) rides.shift();   // trim oldest — keep the most recent RIDE_MAX
   try { localStorage.setItem(RIDE_KEY, JSON.stringify(rides)); } catch(_){}
 }
+// Save a finished NAP session to the same history list (設定 → 履歴). Nap rows have no train or
+// journey, so they render via the kind:"nap" branch in renderRideHistory. The blinded patternId is
+// deliberately NOT stored — the history is user-facing and must not reveal which pattern fired.
+function recordNapRide(){
+  const rec = {
+    at: new Date().toISOString(),
+    kind: "nap",
+    context: (S.alertCtx && S.alertCtx.context) || null,      // 'test' | 'train'
+    responseSec: (typeof S.lastResponseSec === "number") ? S.lastResponseSec : null,
+    fireCount: S.napFireCount || 1,
+  };
+  const rides = loadRides(); rides.push(rec);
+  while (rides.length > RIDE_MAX) rides.shift();
+  try { localStorage.setItem(RIDE_KEY, JSON.stringify(rides)); } catch(_){}
+}
 // Totals across the rides we still hold (capped at RIDE_MAX), so this reads "your recent
 // riding", not a lifetime stat.
 //
@@ -3049,6 +3192,20 @@ function renderRideHistory(){
   el.innerHTML = rides.map(r => {
     const d = new Date(r.at);
     const when = isNaN(d) ? "" : `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+    // right side of the header: timestamp + a per-row delete (removes just this history entry).
+    const delBtn = `<button class="r-del" onclick="deleteRide('${r.at}')" aria-label="${tt('削除','Delete')}" title="${tt('削除','Delete')}" style="background:none;border:none;color:var(--ink2);font-size:14px;line-height:1;cursor:pointer;padding:0 4px;opacity:.6">✕</button>`;
+    const right  = `<span style="display:flex;align-items:center;gap:6px"><span class="r-when">${when}</span>${delBtn}</span>`;
+    // Nap sessions have no train/journey — render a compact row (label + response time + fire count).
+    if (r.kind === "nap"){
+      const tags = [];
+      if (typeof r.responseSec === "number") tags.push(`<span class="r-tag ok">${r.responseSec.toFixed(1)}s</span>`);
+      if (r.fireCount > 1) tags.push(`<span class="r-tag">${tt(`刺激 ${r.fireCount}回`, `${r.fireCount}× fired`)}</span>`);
+      if (r.context) tags.push(`<span class="r-tag">${r.context==='test'?tt('仮眠・練習','Test'):tt('実際の乗車','Train')}</span>`);
+      return `<div class="ride-row">
+        <div class="r-top"><span class="r-head"><span class="r-line">${tt('仮眠モード','Nap mode')}</span></span>${right}</div>
+        <div class="r-meta">${tags.join("")}</div>
+      </div>`;
+    }
     // rows written before lineId existed only kept the JA name: no roundel, no spine, no codes
     const rw    = r.lineId ? S.railways[r.lineId] : null;
     const mark  = r.lineId ? lineMark(r.lineId, "xs") : "";
@@ -3059,7 +3216,7 @@ function renderRideHistory(){
     if (r.alerted) tags.push(`<span class="r-tag">${tt('通知','Alerted')}${r.responseSec!=null?` · ${r.responseSec.toFixed(1)}s`:""}</span>`);
     else tags.push(`<span class="r-tag">${tt('通知なし','No alert')}</span>`);
     return `<div class="ride-row">
-        <div class="r-top"><span class="r-head">${mark}<span class="r-line">${name}</span></span><span class="r-when">${when}</span></div>
+        <div class="r-top"><span class="r-head">${mark}<span class="r-line">${name}</span></span>${right}</div>
         <div class="r-journey">
           <span class="r-dot"${c}></span><span class="r-stn">${esc(r.from)}${code(r.fromId)}</span>
           <span class="r-spine"${c}></span><span></span>
@@ -3076,17 +3233,36 @@ function clearRideHistory(){
   try { localStorage.removeItem(RIDE_KEY); } catch(_){}
   renderRideHistory();
 }
+// Delete ONE unwanted entry from the user-facing history (matched by its timestamp). This only
+// touches the 履歴 list — the research CSV log (LOG_KEY) is separate and unaffected.
+function deleteRide(at){
+  const rides = loadRides();
+  const i = rides.findIndex(r => r.at === at);
+  if (i < 0) return;
+  if (!confirm(tt("この記録を履歴から削除しますか？", "Remove this entry from history?"))) return;
+  rides.splice(i, 1);
+  try { localStorage.setItem(RIDE_KEY, JSON.stringify(rides)); } catch(_){}
+  renderRideHistory();
+}
 
 // ── experiment log persistence + CSV export ──
 function loadLog(){ try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]"); } catch(_){ return []; } }
+// Nap vs train rows are told apart by alertSource ("nap" = nap mode; anything else = a train
+// alert). Every per-mode export/clear/reset below filters on this so the two tests stay isolated.
+const isNapRow = (r) => !!r && r.alertSource === "nap";
+const logForMode = (mode) => loadLog().filter(r => mode === "nap" ? isNapRow(r) : !isNapRow(r));
 function updateExportBtn(){
-  const b = $("btnExport"); if (!b) return;
-  const n = loadLog().length;
-  b.textContent = tt(`CSV 書き出し (${n})`, `Export CSV (${n})`);
-  b.disabled = n === 0;
+  const set = (id, mode, ja, en) => {
+    const b = $(id); if (!b) return;
+    const n = logForMode(mode).length;
+    b.textContent = tt(`${ja} (${n})`, `${en} (${n})`);
+    b.disabled = n === 0;
+  };
+  set("btnExportNap",   "nap",   "仮眠CSV", "Nap CSV");
+  set("btnExportTrain", "train", "電車CSV", "Train CSV");
 }
-function exportLog(){
-  const log = loadLog();
+async function exportLog(mode){
+  const log = logForMode(mode);
   if (!log.length){ alert(tt("まだ記録がありません。", "No response times logged yet.")); return; }
   // Columns are APPEND-ONLY so previously exported files stay parseable. The habituation block
   // at the end is what makes a row identifiable as an experimental condition:
@@ -3107,47 +3283,85 @@ function exportLog(){
   //                     only): HARDWARE proof the stimulus physically fired. 0/blank = no proof.
   //   skinContact     — whether the band reported skin contact at delivery (native only). A zap
   //                     with skinContact=false likely never reached the wearer.
-  const cols = ["awakeAt","responseSec","line","train","trainType","dest","alertStopsBefore","stopsAtAlert","alertSource","delaySec","ble","alertTiming",
+  const cols = ["awakeAt","awakeLocal","responseSec","line","train","trainType","dest","alertStopsBefore","stopsAtAlert","alertSource","delaySec","ble","alertTiming",
                 "patternId","patternPolicy","stimChannel","exposures","stimDecision",
                 "evalNotice","evalComfort","evalScore",
                 "sleepState","context","deliveredPulses","skinContact","fireCount"];
   const csv = [cols.join(",")]
     .concat(log.map(r => cols.map(c => { const v = r[c]; return /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : (v ?? ""); }).join(",")))
     .join("\r\n");
+  const filename = `norisugoshi_${mode}_${new Date().toISOString().slice(0,10)}.csv`;
+
+  // Native: an <a download> blob is INERT inside the Capacitor WebView (that was the "can't export"
+  // bug). Write a real file to the cache and hand it to the OS share sheet (save to Drive / Files /
+  // email / etc.). Web keeps the direct download.
+  if (IS_NATIVE && _FS && _SH){
+    try {
+      await _FS.writeFile({ path: filename, data: csv, directory: "CACHE", encoding: "utf8" });
+      const { uri } = await _FS.getUri({ path: filename, directory: "CACHE" });
+      await _SH.share({ title: filename, url: uri, dialogTitle: tt("CSVを共有 / 保存", "Share / save CSV") });
+    } catch(e){ alert(tt("書き出しに失敗しました: ", "Export failed: ") + (e.message || e)); }
+    return;
+  }
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  a.download = `norisugoshi_response_times_${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = filename;
   document.body.appendChild(a); a.click(); a.remove();
 }
-function clearLog(){
-  const n = loadLog().length;
+function clearLog(mode){
+  const all = loadLog();
+  const keep = all.filter(r => mode === "nap" ? !isNapRow(r) : isNapRow(r));   // drop just this mode's rows
+  const n = all.length - keep.length;
+  const label = mode === "nap" ? tt("仮眠", "nap") : tt("電車", "train");
   if (!n){ alert(tt("削除する記録がありません。", "No records to clear.")); return; }
-  // strong, count-aware confirmation so a participant can't wipe the data with a stray tap
-  if (!confirm(tt(`⚠️ 記録 ${n} 件をすべて削除します。元に戻せません。`, `⚠️ Delete ALL ${n} saved records? This CANNOT be undone.`))) return;
-  try { localStorage.removeItem(LOG_KEY); } catch(_){}
+  if (!confirm(tt(`⚠️ ${label}の記録 ${n} 件を削除します。元に戻せません。`, `⚠️ Delete ${n} ${label} record(s)? This CANNOT be undone.`))) return;
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(keep)); } catch(_){}
   S.times = []; updateExportBtn();
 }
 
 // New-respondent reset. Manual policy switching is KEPT — this does not automate the block
-// switch; it only returns the policy to the baseline default (fixed/single) so the next
-// respondent starts their 5× single-pulse phase cleanly. The exposure/rotation cursors live in
-// PAT_KEY and otherwise persist across rides AND across respondents (that carryover is exactly
-// what corrupted respondent 2's exposure labels), so they MUST be cleared here. The stimulus
-// channel and the eval on/off are study-wide setup, not per-respondent, so they are left alone.
-function resetStudy(){
-  const n = loadLog().length;
-  const first = n
-    ? tt(`⚠️ 新しい被験者の準備：記録 ${n} 件を含む実験状態をすべて消去します。\n\n先にCSVを書き出しましたか？`,
-         `⚠️ New respondent: this erases all study state, including ${n} logged record(s).\n\nHave you already exported the CSV?`)
-    : tt(`新しい被験者の準備：提示回数・乗車履歴・方式をリセットします。`,
-         `New respondent: reset exposure counts, ride history and policy.`);
-  if (!confirm(first)) return;
-  if (!confirm(tt(`本当にリセットしますか？元に戻せません。`, `Reset now? This CANNOT be undone.`))) return;
-  [LOG_KEY, PAT_KEY, PAT_POLICY_KEY, PAT_FIXED_KEY, CTX_KEY, RIDE_KEY].forEach(k => { try { localStorage.removeItem(k); } catch(_){} });
+// switch; a FULL reset only returns the policy to the baseline default (fixed/single). Exposure/
+// rotation cursors live per-mode in PAT_KEY and otherwise persist across rides AND respondents
+// (that carryover is what corrupted respondent 2's exposure labels), so they MUST be cleared.
+// The stimulus channel and eval on/off are study-wide setup, so they are left alone.
+//   mode "all"   → wipe everything (log, both exposure buckets, policy/context, ride history)
+//   mode "nap"   → wipe only nap rows + the nap exposure bucket + nap history
+//   mode "train" → wipe only train rows + the train exposure bucket + train history
+function resetStudy(mode){
+  mode = mode || "all";
+  if (mode === "all"){
+    const n = loadLog().length;
+    const first = n
+      ? tt(`⚠️ 新しい被験者の準備：記録 ${n} 件を含む実験状態をすべて消去します。\n\n先にCSVを書き出しましたか？`,
+           `⚠️ New respondent: this erases ALL study state, including ${n} logged record(s).\n\nHave you already exported the CSV?`)
+      : tt(`新しい被験者の準備：提示回数・履歴・方式をすべてリセットします。`,
+           `New respondent: reset all exposure counts, history and policy.`);
+    if (!confirm(first)) return;
+    if (!confirm(tt(`本当に全体をリセットしますか？元に戻せません。`, `Reset EVERYTHING? This CANNOT be undone.`))) return;
+    [LOG_KEY, PAT_KEY, PAT_POLICY_KEY, PAT_FIXED_KEY, CTX_KEY, RIDE_KEY].forEach(k => { try { localStorage.removeItem(k); } catch(_){} });
+    S.times = [];
+    updateExportBtn(); renderRideHistory(); renderStimUI(); syncContextSeg();
+    alert(tt(`リセット完了。方式は「固定／single」に戻りました。刺激チャンネルはそのままです。`,
+             `Reset complete. Policy is back to Fixed / single. The stimulus channel is unchanged.`));
+    return;
+  }
+  // ── per-mode reset (nap OR train only) ──
+  const isNap = mode === "nap";
+  const label = isNap ? tt("仮眠", "nap") : tt("電車", "train");
+  const rows = logForMode(mode).length;
+  if (!confirm(tt(`${label}のデータをリセットします（記録 ${rows} 件・提示回数・履歴）。先にCSVを書き出しましたか？`,
+                  `Reset ${label} data (${rows} record(s), exposure counts, history). Have you exported the CSV?`))) return;
+  if (!confirm(tt(`本当に${label}だけリセットしますか？元に戻せません。`, `Reset ${label} only? This CANNOT be undone.`))) return;
+  // log: keep the OTHER mode's rows
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(loadLog().filter(r => isNap ? !isNapRow(r) : isNapRow(r)))); } catch(_){}
+  // exposure bucket for this mode
+  const all = patAll(); delete all[isNap ? PAT_NS.NAP : PAT_NS.TRAIN];
+  try { localStorage.setItem(PAT_KEY, JSON.stringify(all)); } catch(_){}
+  // ride history: keep the OTHER mode's rides
+  try { localStorage.setItem(RIDE_KEY, JSON.stringify(loadRides().filter(r => isNap ? r.kind !== "nap" : r.kind === "nap"))); } catch(_){}
   S.times = [];
-  updateExportBtn(); renderRideHistory(); renderStimUI(); syncContextSeg();
-  alert(tt(`リセット完了。方式は「固定／single」に戻りました。刺激チャンネルはそのままです。`,
-           `Reset complete. Policy is back to Fixed / single. The stimulus channel is unchanged.`));
+  updateExportBtn(); renderRideHistory(); renderStimUI();
+  alert(tt(`${label}のデータをリセットしました。`, `${label} data has been reset.`));
 }
 
 // ⚠️ BOOT LAST, AFTER EVERY DECLARATION ABOVE.

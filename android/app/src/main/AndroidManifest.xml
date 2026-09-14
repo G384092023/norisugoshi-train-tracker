@@ -33,6 +33,11 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- Phase 2b: receives the exact nap alarm, then wakes the app + screen to fire. -->
+        <receiver
+            android:name=".NapAlarmReceiver"
+            android:exported="false" />
     </application>
 
     <!-- Permissions -->
@@ -56,9 +61,8 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
 
-    <!-- Phase 2b (background NAP FIRE) — needed only once the custom nap service is built:
+    <!-- Phase 2b (background NAP FIRE): exact alarm that survives Doze + a full-screen wake. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-    -->
 </manifest>
