@@ -685,6 +685,7 @@
         <button data-pref="fixed"    onclick="setPatternPolicy('fixed')"><span class="ja">固定</span><span class="en">Fixed</span></button>
         <button data-pref="random"   onclick="setPatternPolicy('random')"><span class="ja">ランダム</span><span class="en">Random</span></button>
         <button data-pref="repeating" onclick="setPatternPolicy('repeating')"><span class="ja">繰返し</span><span class="en">Repeating</span></button>
+        <button data-pref="scheduled" onclick="setPatternPolicy('scheduled')"><span class="ja">計画</span><span class="en">Plan</span></button>
       </div>
 
       <div class="sub-t" id="patGridT"></div>
@@ -2541,13 +2542,21 @@ function stimRecordExposure(id, ns){
   s.exp[id] = (s.exp[id] || 0) + 1; s.last = id; patSave(ns, s);
 }
 // The POLICY is the independent variable:
-//   fixed    — same pattern every alert. The CONTROL; responseSec should drift upward here.
-//   random   — drawn from the pool, never repeating the previous one. The intervention.
-//   rotating — deterministic cycle: varied but learnable, so it may habituate to the sequence.
-// `ns` selects the mode bucket (nap vs train) so the rotation/last cursors don't cross over.
+//   fixed     — same pattern every alert. The CONTROL; responseSec should drift upward here.
+//   random    — drawn from the pool, never repeating the previous one. The intervention.
+//   repeating — deterministic cycle through the 5 varying patterns.
+//   scheduled — a built-in block design: single ×10 (habituation phase A), then the 5 varying
+//               patterns cycled TWICE (phase B). Past delivery 20 it keeps cycling the 5.
+// `ns` selects the mode bucket (nap vs train) so the cursors don't cross over.
 function stimSelectPattern(policy, fixedId, ns){
   if (policy === "fixed") return patternById(fixedId);
   const s = patState(ns);
+  if (policy === "scheduled"){
+    const i = s.sched || 0;                         // 0-based delivery index under this policy
+    s.sched = i + 1; patSave(ns, s);
+    if (i < 10) return patternById("single");       // first 10: habituation on single
+    return VARYING_PATTERNS[(i - 10) % VARYING_PATTERNS.length];   // then the 5 varying, cycling
+  }
   if (policy === "repeating"){
     const i = (s.rotate || 0) % VARYING_PATTERNS.length;
     s.rotate = (i + 1) % VARYING_PATTERNS.length; patSave(ns, s);
@@ -2558,6 +2567,18 @@ function stimSelectPattern(policy, fixedId, ns){
   const pool = VARYING_PATTERNS.filter(p => p.id !== s.last);
   const usable = pool.length ? pool : VARYING_PATTERNS;   // guard if last was the only varying pattern
   return usable[Math.floor(Math.random() * usable.length)];
+}
+// Non-mutating peek: what fixed/scheduled will deliver NEXT (+ a phase label), for display only.
+// random/repeating return null (no single deterministic "next" worth showing).
+function stimPeek(policy, fixedId, ns){
+  if (policy === "fixed") return { id: fixedId };
+  if (policy === "scheduled"){
+    const i = patState(ns).sched || 0, n = VARYING_PATTERNS.length;
+    return i < 10
+      ? { id: "single", phase: tt(`A 単発 ${i+1}/10`, `A single ${i+1}/10`) }
+      : { id: VARYING_PATTERNS[(i-10)%n].id, phase: tt(`B ${(i-10)%n+1}/${n}・${Math.floor((i-10)/n)+1}巡目`, `B ${(i-10)%n+1}/${n} · cycle ${Math.floor((i-10)/n)+1}`) };
+  }
+  return null;
 }
 
 // One step of a pattern: `count` pulses at `intensity`, EXECUTE set, COMMIT clear.
@@ -2650,15 +2671,20 @@ function renderStimUI(){
 
   // Under a varying policy the app picks the pattern, so highlighting one would misrepresent
   // what will actually fire. The grid then reads as the pool + its exposure counts instead.
+  // "scheduled" uses single too, so it shows ALL patterns (like fixed) but tapping doesn't set one.
   const isFixed = pol === "fixed";
-  $("patGridT").innerHTML = isFixed
-    ? '<span class="ja">固定パターン</span><span class="en">Fixed pattern</span>'
-    : '<span class="ja">パターン一覧・提示回数</span><span class="en">Pattern pool &amp; exposures</span>';
+  const showAll = isFixed || pol === "scheduled";
+  $("patGridT").innerHTML =
+      isFixed          ? '<span class="ja">固定パターン</span><span class="en">Fixed pattern</span>'
+    : pol==="scheduled"? '<span class="ja">計画: 単発×10 → 他5種×2巡</span><span class="en">Plan: single ×10 → other 5 ×2 cycles</span>'
+    :                    '<span class="ja">パターン一覧・提示回数</span><span class="en">Pattern pool &amp; exposures</span>';
 
-  $("patGrid").innerHTML = (isFixed ? PATTERNS : VARYING_PATTERNS).map(p => {
+  $("patGrid").innerHTML = (showAll ? PATTERNS : VARYING_PATTERNS).map(p => {
     const n = stimExposuresTotal(p.id);   // settings display shows nap + train combined
     const on = isFixed && p.id === fixed ? " on" : "";
-    return `<button class="pat-chip${on}" onclick="setPatternFixed('${p.id}')">`
+    // fixed lets you pick the pattern; scheduled is a fixed sequence, so its chips are display-only.
+    const click = (pol === "scheduled") ? "" : ` onclick="setPatternFixed('${p.id}')"`;
+    return `<button class="pat-chip${on}"${click}>`
          + `<span class="nm">${tt(p.ja, p.en)}<em>${n}${tt("回","×")}</em></span>`
          + `<span class="shape">${patternGlyph(p)}</span></button>`;
   }).join("");
@@ -2868,8 +2894,9 @@ function napShow(state){
 function renderNapPlan(){
   const el=$("napPlan"); if(!el) return;
   const pol=patternPolicy(), fx=patternFixedId(), ch=stimChannel();
-  const pat = pol==="fixed" ? fx : tt("方式にしたがって選択","chosen by policy");
-  el.innerHTML = tt(`送信する刺激: ${ch} / ${pol}（${pat}）`, `Will fire: ${ch} / ${pol} (${pat})`);
+  const peek = stimPeek(pol, fx, PAT_NS.NAP);      // next delivery for fixed/scheduled (nap bucket)
+  const pat = peek ? (peek.id + (peek.phase ? ` · ${peek.phase}` : "")) : tt("方式にしたがって選択","chosen by policy");
+  el.innerHTML = tt(`次の刺激: ${ch} / ${pol}（${pat}）`, `Next: ${ch} / ${pol} (${pat})`);
 }
 function startNap(){
   const mins = Math.max(0, Math.min(600, Math.round(+($("napDelay").value) || 0)));
