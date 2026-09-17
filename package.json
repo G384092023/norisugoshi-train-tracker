@@ -8,7 +8,10 @@
     "cap:www": "node sync-www.mjs",
     "cap:sync": "npm run cap:www && npx cap sync android",
     "cap:open": "npm run cap:sync && npx cap open android",
-    "cap:run": "npm run cap:www && npx cap run android --list"
+    "cap:run": "npm run cap:www && npx cap run android --list",
+    "cap:sync:ios": "npm run cap:www && npx cap sync ios",
+    "cap:open:ios": "npm run cap:sync:ios && npx cap open ios",
+    "cap:sync:all": "npm run cap:www && npx cap sync"
   },
   "engines": {
     "node": ">=18"
@@ -20,6 +23,7 @@
     "@capacitor/core": "^8.5.0",
     "@capacitor/filesystem": "^8.1.3",
     "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.5.2",
     "@capacitor/local-notifications": "^8.3.1",
     "@capacitor/share": "^8.0.1",
     "@capawesome-team/capacitor-android-foreground-service": "^8.1.0"
