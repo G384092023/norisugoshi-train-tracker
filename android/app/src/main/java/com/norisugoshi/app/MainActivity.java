@@ -13,7 +13,9 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        registerPlugin(NapAlarmPlugin.class);   // must be before super.onCreate
+        // Register custom plugins before the bridge starts.
+        registerPlugin(NorisugoshiTracker.class);   // proven native BLE + patterns + oracle (+ nap fire path)
+        registerPlugin(NapAlarmPlugin.class);       // Phase-2b exact alarm that relaunches to fire the nap
         super.onCreate(savedInstanceState);
         maybeHandleNapFire(getIntent());
     }

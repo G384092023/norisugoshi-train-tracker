@@ -71,12 +71,17 @@
 	<string>接続したリストバンド（Pavlok）に起床用の刺激を送るために Bluetooth を使用します。 / Uses Bluetooth to send the wake stimulus to your connected wristband (Pavlok).</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>接続したリストバンド（Pavlok）に起床用の刺激を送るために Bluetooth を使用します。 / Uses Bluetooth to send the wake stimulus to your connected wristband (Pavlok).</string>
-	<!-- Keep the BLE link alive while backgrounded so the band can still be driven during a nap.
-	     NOTE: iOS has no AlarmManager; a precisely-timed background fire is not guaranteed here
-	     (nap mode falls back to the foreground timer on iOS). -->
+	<!-- Background execution: `location` is the keep-alive spine (iOS has no foreground service),
+	     so the native nap timer + BLE run with the screen off; `bluetooth-central` keeps the band
+	     link alive in the background. Both are used by the native NorisugoshiTracker layer. -->
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>location</string>
 		<string>bluetooth-central</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>仮眠モード中もアプリを動かし続け、設定時刻に確実に起こすために位置情報を使用します。 / Keeps the app running during a nap so it can fire the wake stimulus at the set time.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>画面ロック中も仮眠モードを動かし続け、設定時刻に確実に起こすために位置情報を使用します。 / Keeps the app alive while the screen is locked so the nap stimulus fires on time.</string>
 </dict>
 </plist>

@@ -38,15 +38,24 @@
         <receiver
             android:name=".NapAlarmReceiver"
             android:exported="false" />
+
+        <!-- Proven native background service: keeps the process + BLE alive with the screen off. -->
+        <service
+            android:name=".TrackingService"
+            android:foregroundServiceType="dataSync|connectedDevice"
+            android:exported="false" />
     </application>
 
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Foreground service: keeps the app alive to track / drive BLE while backgrounded (Phase 2). -->
+    <!-- Foreground service: keeps the app alive to track / drive BLE while backgrounded. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Notifications: the foreground-service notification + alerts (Android 13+ runtime prompt). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

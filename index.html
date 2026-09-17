@@ -1151,23 +1151,36 @@ async function getJSON(path, tries = 5){
 // ============================================================ INIT
 const IS_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 
-// ── Phase 2 native plugin handles (null on web) ──────────────────────────────
-// _NT is the OPTIONAL custom native plugin (Phase 2 background poll loop + Phase 2b nap fire).
-// It stays null until that Kotlin plugin exists; every `IS_NATIVE && _NT` branch then falls
-// through to the standard _BLE path. Declaring it here avoids a ReferenceError on native, since
-// those branches read `_NT` before it would otherwise be defined.
+// ── native plugin handles (null on web) ──────────────────────────────────────
+// _NT is the PROVEN custom native plugin (NorisugoshiTracker — Java + Swift) that owns the BLE
+// connection, pattern playback, the safety limiter and the background nap fire. On native it is
+// the primary path (survives screen-off / OEM freeze); the community _BLE plugin is used only as
+// the device PICKER (requestDevice → deviceId). _BLE is still the full path on web.
 let _BLE = null, _LN = null, _HP = null, _FG = null, _NT = null, _FS = null, _SH = null, _NAP = null;
 function initPlugins(){
   if (!IS_NATIVE) return;
   const P = window.Capacitor?.Plugins || {};
-  _BLE = P.BluetoothLe                || null;  // @capacitor-community/bluetooth-le
+  _BLE = P.BluetoothLe                || null;  // @capacitor-community/bluetooth-le (native picker / web path)
   _LN  = P.LocalNotifications         || null;  // @capacitor/local-notifications
   _HP  = P.Haptics                    || null;  // @capacitor/haptics
-  _FG  = P.AndroidForegroundService   || null;  // @capawesome-team/capacitor-android-foreground-service
+  _FG  = P.ForegroundService || P.AndroidForegroundService || null;
   _FS  = P.Filesystem                 || null;  // @capacitor/filesystem — CSV export needs a real file
   _SH  = P.Share                      || null;  // @capacitor/share — hand the CSV to a share sheet
-  _NAP = P.NapAlarm                   || null;  // custom (Phase 2b) — exact background nap alarm
-  _NT  = P.NorisugoshiNative          || null;  // custom plugin — null until Phase 2/2b Kotlin is built
+  _NAP = P.NapAlarm                   || null;  // legacy Phase-2b alarm (superseded by _NT when present)
+  _NT  = P.NorisugoshiTracker         || null;  // the proven native layer (BLE + patterns + nap + oracle)
+  if (_NT){
+    try {
+      _NT.addListener("bleDisconnected", () => { bleReset(); setBlePill(false); });
+      // hardware proof-of-fire: the band reports delivered pulses (+ skin contact) on 0x2002.
+      _NT.addListener("delivered", (ev) => {
+        if (!S.alertCtx) return;
+        if (ev && ev.pulses != null) S.alertCtx.deliveredPulses = ev.pulses;
+        if (ev && typeof ev.skinContact === "boolean") S.alertCtx.skinContact = ev.skinContact;
+      });
+      // the native background NAP fired — time responseSec from ev.firedAt and show the wake UI.
+      _NT.addListener("napFired", (ev) => onNativeNapFired(ev && ev.firedAt));
+    } catch(_){}
+  }
 }
 window.addEventListener("load", initPlugins);
 
@@ -2313,21 +2326,26 @@ async function connectBLE_native(){
     const deviceId = result?.device?.deviceId ?? result?.deviceId;
     const name = result?.device?.name ?? result?.name ?? "";
     if (!deviceId) throw new Error("No device returned from requestDevice");
-    await _BLE.connect({ deviceId });
-    const kind = deviceByName(name) || "pavlok";    // native writes by UUID; kind picks the protocol
-    S.ble.deviceId = deviceId; S.ble.kind = kind;
-    // listen for disconnect. addListener may return a PluginListenerHandle (no .catch) OR a
-    // Promise depending on the Capacitor version, so normalise through Promise.resolve and guard
-    // a synchronous throw — otherwise ".catch is not a function" aborted a SUCCESSFUL connect into
-    // the failure path (the "connect failed" prompt fired even though the band was connected).
-    try {
-      Promise.resolve(_BLE.addListener("onDisconnected", (ev) => {
+    const kind = deviceByName(name) || "pavlok";
+    if (_NT){
+      // PROVEN path: hand the picked deviceId to the native layer, which owns the GATT connection,
+      // pattern playback, the limiter and the background fire (survives screen-off / OEM freeze).
+      // The community plugin only ran the picker above. Disconnect + delivery reports arrive via
+      // the _NT listeners wired in initPlugins.
+      setBlePill(false, "connecting…");
+      await _NT.bleConnect({ address: deviceId, kind });
+      S.ble.deviceId = deviceId; S.ble.kind = kind;
+    } else {
+      // Fallback (a build without the native plugin): connect via the community plugin + JS oracle.
+      await _BLE.connect({ deviceId });
+      S.ble.deviceId = deviceId; S.ble.kind = kind;
+      try { Promise.resolve(_BLE.addListener("onDisconnected", (ev) => {
         if (ev?.deviceId === deviceId){ bleReset(); setBlePill(false); }
-      })).catch(()=>{});
-    } catch(_){}
+      })).catch(()=>{}); } catch(_){}
+      subscribeDeliveryReports(kind);
+    }
     setBlePill(true, DEVICES[kind]?.label ?? name ?? "device");
     $("btnBleTest").disabled = false;
-    subscribeDeliveryReports(kind);                 // proof-of-fire / skin-contact oracle (non-fatal)
   } catch(e) {
     setBlePill(false);
     // No Location line here: the app asserts neverForLocation, so scanning works with Location
@@ -2600,6 +2618,21 @@ async function blePlayPattern(pattern, strength, channel, opts){
   if (!kind || !DEVICES[kind] || !bleConnected()) return false;
   const dev = DEVICES[kind];
   channel = channel || "vibe";
+  const ns = (opts && opts.ns) || PAT_NS.TRAIN;
+
+  // NATIVE: the proven Java/Swift layer owns pattern playback + the safety limiter (and fires it
+  // reliably in the background). JS still owns the EXPOSURE covariate (per-mode isolation), so we
+  // record it here on a successful fire. This is why patterns actually reach the wrist while asleep.
+  if (IS_NATIVE && _NT){
+    let ok = false;
+    try { await _NT.firePattern({ patternId: pattern.id, strength, channel }); ok = true; }
+    catch(e){ stimLastDecision = `${pattern.id}: ${(e && (e.message||e)) || "not sent"}`; }
+    if (ok){
+      stimLastDecision = `${pattern.id}: allow (native)`;
+      if (!opts || opts.countExposure !== false) stimRecordExposure(pattern.id, ns);
+    }
+    return ok;
+  }
 
   const base = Math.min(100, Math.max(1, strength));   // already a percent
   const peak = Math.round(base * patternPeak(pattern) / 100);
@@ -2795,6 +2828,14 @@ async function bleSend(value, channel, opts){
   const dev = DEVICES[kind];
   channel = channel || "vibe";
 
+  // NATIVE: hand off to the Java/Swift BleManager, which owns encoding + the safety limiter (and
+  // is authoritative for the fired budget). A refused write comes back rejected with the reason.
+  if (IS_NATIVE && _NT){
+    try { await _NT.bleWrite({ value, channel }); stimLastDecision = value > 0 ? `allow ${channel} (native)` : "clear"; }
+    catch(e){ stimLastDecision = (e && (e.message||e)) || "not sent"; }
+    return;
+  }
+
   let intensity = value <= 0 ? 0 : Math.min(100, Math.max(1, value));   // already a percent
   if (intensity > 0){
     const d = stimCheck(channel, intensity);
@@ -2900,29 +2941,62 @@ function renderNapPlan(){
 }
 function startNap(){
   const mins = Math.max(0, Math.min(600, Math.round(+($("napDelay").value) || 0)));
+  const refireSec = Math.max(0, Math.min(120, Math.round(+($("napRefire") && $("napRefire").value) || 0)));
   S.napArmed = true; S.napFireAt = Date.now() + mins*60000;
   keepAwake();                           // hold the screen on while foreground
+  const bg = IS_NATIVE && (_NT || _NAP);
   const hint = $("napArmedHint");
-  if (hint) hint.innerHTML = (IS_NATIVE && _NAP)
+  if (hint) hint.innerHTML = bg
     ? tt("画面を消しても設定時刻に作動します。端末は近くに置いてください。", "Fires at the set time even with the screen off. Keep the phone nearby.")
     : tt("画面を開いたまま、端末を近くに置いてください。バックグラウンドでは作動しないことがあります。", "Keep this screen open and the phone nearby. Firing may not run reliably in the background.");
   napShow("armed"); napTick();
   clearInterval(S.napCountdownId); S.napCountdownId = setInterval(napTick, 1000);
   clearTimeout(S.napFireTimeout); S.napFireTimeout = null;
+
   if (IS_NATIVE && _NAP){
-    // Phase 2b: a native EXACT alarm is the real trigger (survives screen-off / background).
-    // Keep a foreground service running so the process + BLE connection stay alive until it fires.
+    // ANDROID: an exact setAlarmClock (Doze/EMUI-proof) relaunches the app at the fire time; the
+    // JS napFire() then fires via _NT.firePattern (native BLE). A foreground service keeps the
+    // process + native BLE connection alive so the fire lands even after a background freeze.
     if (_FG){ try { _FG.startForegroundService({ title:"乗り過ごし防止", body:tt("仮眠モード：刺激を待機中…","Nap mode: waiting to fire…"), id:101, smallIcon:"ic_stat_icon_config_sample" }); } catch(_){} }
     _NAP.schedule({ atMs: String(S.napFireAt) }).catch(e => {
       alert(tt("アラームを設定できませんでした（正確なアラームの許可が必要な場合があります）: ",
                "Couldn't set the alarm (exact-alarm permission may be required): ") + (e && (e.message||e)));
     });
-    // No setTimeout on native — the alarm fires napFire() via __napFireFromNative even when the
-    // screen is off. The countdown above is display-only.
+  } else if (IS_NATIVE && _NT){
+    // iOS: the native layer resolves nothing — JS picks the pattern (policy + per-mode isolation)
+    // and hands it over; native keeps alive (location spine) and fires + re-fires in the BACKGROUND.
+    // The "napFired" event brings us back (onNativeNapFired).
+    const pat = stimSelectPattern(patternPolicy(), patternFixedId(), PAT_NS.NAP);
+    S.napPat = pat; S.napPendingPat = pat.id;
+    S.alertCtx = {
+      line:"", train:"", trainType:"", dest:"", alertStopsBefore:"", stopsAtAlert:"",
+      alertSource:"nap", delaySec:0, ble:bleConnected(), context: sessionContext(),
+      patternId: pat.id, patternPolicy: patternPolicy(), stimChannel: stimChannel(),
+      exposures: stimExposures(pat.id, PAT_NS.NAP),   // BEFORE this delivery
+    };
+    _NT.napArm({
+      delayMs: mins*60000, patternId: pat.id, strength: hapticStrength(),
+      channel: stimChannel(), refireMs: refireSec*1000, maxFires: STIM_LIMITS.zapMaxPerRide
+    }).catch(e => alert(tt("仮眠を設定できませんでした: ","Couldn't arm the nap: ") + (e && (e.message||e))));
   } else {
-    // Web / no native alarm: foreground setTimeout (only reliable while the screen stays on).
+    // Web / no native: foreground setTimeout (only reliable while the screen stays on).
     S.napFireTimeout = setTimeout(napFire, mins*60000);
   }
+}
+// The native layer fired the scheduled nap (possibly while the WebView was suspended); the app is
+// now foregrounded. Time responseSec from firedAt; the alertCtx was prepared at arm time.
+function onNativeNapFired(firedAtMs){
+  S.napArmed = false;
+  clearInterval(S.napCountdownId);
+  S.napFiredAt = (typeof firedAtMs === "number" && firedAtMs > 0) ? firedAtMs : Date.now();
+  S.t0 = S.napFiredAt;                                  // responseSec is measured from the fire
+  if (S.napPendingPat){ stimRecordExposure(S.napPendingPat, PAT_NS.NAP); S.napPendingPat = null; }
+  S.napFireCount = 1;
+  if (S.alertCtx){ S.alertCtx.fireCount = 1; S.alertCtx.stimDecision = "fired"; }
+  S.alertFired = true; S.alertAcked = false;
+  napShow("fired"); $("napTimerVal").textContent = "0.0s";
+  clearInterval(S.timerId);
+  S.timerId = setInterval(()=>{ $("napTimerVal").textContent = ((Date.now()-S.t0)/1000).toFixed(1)+"s"; }, 100);
 }
 // Called by MainActivity when the native alarm fires (see NapAlarmReceiver). JS owns the guard:
 // only fire if a nap is still armed (so a stale intent or a re-launch is a harmless no-op).
@@ -2931,11 +3005,12 @@ function napTick(){
   const s = Math.max(0, Math.round((S.napFireAt - Date.now())/1000));
   $("napCountdown").textContent = String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
 }
-// Tear down the native Phase-2b pieces (pending alarm + the keep-alive foreground service).
+// Tear down the native nap pieces (native scheduler/keep-alive, legacy alarm, foreground service).
 function napNativeCleanup(){
   if (!IS_NATIVE) return;
-  if (_NAP){ try { _NAP.cancel(); } catch(_){} }
-  if (_FG){ try { _FG.stopForegroundService(); } catch(_){} }
+  if (_NT){  try { _NT.napCancel(); } catch(_){} }   // native tracker: stop timer/re-fire/location
+  if (_NAP){ try { _NAP.cancel(); } catch(_){} }     // legacy Phase-2b alarm
+  if (_FG){  try { _FG.stopForegroundService(); } catch(_){} }
 }
 function cancelNap(silent){
   clearTimeout(S.napFireTimeout); clearInterval(S.napCountdownId); clearInterval(S.timerId); clearInterval(S.napRefireId);

@@ -34,13 +34,32 @@ To hand the build to a test participant you need TestFlight (paid program) or a 
   (`0a` reports on `0x2002`) — all cross-platform Capacitor plugins.
 - BLE usage strings + `bluetooth-central` background mode are already set in `Info.plist`.
 
-## iOS limitation — background nap fire (Phase 2b)
-The Android background nap alarm (`NapAlarmPlugin`, exact `AlarmManager`) is **Android-only**. iOS has
-no equivalent for running code (a BLE write) at a scheduled time while the app is suspended, so on iOS
-**nap mode falls back to the foreground timer** (`_NAP` is null → `setTimeout`): it fires reliably only
-while the app is open and the screen is on. Everything else behaves identically to Android.
-A future iOS-specific approach (local notification + `bluetooth-central` background, with its Apple
-constraints) would be a separate Swift plugin — not built.
+## ⚠️ Native background layer — REQUIRED Xcode steps (do these once)
+This build now includes the proven native Swift layer (`NorisugoshiTracker` plugin) so BLE + the nap
+fire run in the **background** (location keep-alive spine + `bluetooth-central`), like your old app.
+Xcode does not auto-compile files just dropped in the folder — you must wire them once:
+
+1. **Add the Swift files to the App target.** In Xcode's Project navigator, right-click the **App**
+   group → *Add Files to "App"…* → select these (in `ios/App/App/`) and tick the **App** target:
+   `BleManager.swift`, `StimulusPattern.swift`, `StimulusLimiter.swift`, `TrackingManager.swift`,
+   `NorisugoshiTrackerPlugin.swift`, `MainViewController.swift`.
+   (Verify each shows the App target under File inspector → Target Membership.)
+2. **Signing & Capabilities → + Capability → Background Modes**, then tick **Location updates** and
+   **Uses Bluetooth LE accessories**. (The Info.plist keys are already set; this flips the target's
+   entitlement UI to match.)
+3. The storyboard already points at `MainViewController` (which registers the plugin); no action.
+
+If `NorisugoshiTracker` isn't registered (files not added to the target), the app still runs but the
+nap falls back to the **foreground timer** — so if background firing doesn't work, check step 1 first.
+
+## How iOS background firing works here (once the steps above are done)
+iOS has no `AlarmManager`. Instead the native layer stays alive with the **location background mode**
+(the keep-alive spine), fires the nap from **native Swift** (`TrackingManager.napArm` → a native timer
+→ `BleManager.playPattern`, re-firing until 起きた), and schedules a **local-notification backstop** so
+a killed process still wakes the sleeper. This is the same technique your old train-tracking build used
+to survive the background. Device settings still matter: **keep "Always" location allowed** and, for the
+most reliable overnight run, keep it on a charger. If the native files aren't added to the target (step 1),
+it silently falls back to the foreground JS timer.
 
 ## Regenerating after web edits
 Any change to `index.html` (or the other front-end files) needs a re-sync before rebuilding:
